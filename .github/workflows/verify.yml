@@ -1,0 +1,57 @@
+name: Verify Plugin
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [baseline, release, eap]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Resolve SDK
+        id: sdk
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$TARGET" = baseline ]; then
+            VERSION=2025.3.6.1
+          else
+            VERSION=$(curl --fail --silent --show-error --retry 3 \
+              "https://data.services.jetbrains.com/products/releases?code=IIU&latest=true&type=$TARGET" \
+              | jq --exit-status --raw-output '.IIU[0].build')
+          fi
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Test, Package And Verify
+        env:
+          SDK_VERSION: ${{ steps.sdk.outputs.version }}
+        run: ./gradlew :frontend:test buildPlugin verifyPluginStructure verifyPlugin "-PplatformVersion=$SDK_VERSION"
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.target }}
+          path: |
+            frontend/build/reports/tests/
+            build/reports/pluginVerifier/
+      - name: Upload Baseline Plugin
+        if: matrix.target == 'baseline'
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-scroll
+          path: build/distributions/*.zip
