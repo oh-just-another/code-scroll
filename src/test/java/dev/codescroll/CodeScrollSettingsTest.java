@@ -29,8 +29,13 @@ class CodeScrollSettingsTest {
         assertTrue(state.emptyConsole);
         assertTrue(state.emptyUntyped);
         assertFalse(state.outOfRangeEmpty);
-        assertEquals("A0A0A0", state.viewportColor);
-        assertEquals("808080", state.viewportBorderColor);
+        assertEquals("", state.viewportColor);
+        assertEquals("", state.viewportBorderColor);
+        assertEquals("", state.caretLineColor);
+        assertEquals("", state.selectionColor);
+        assertEquals("", state.markerLabelColor);
+        assertEquals("", state.declarationLabelColor);
+        assertEquals(70, state.textIntensity);
         assertEquals(35, state.viewportOpacity);
         assertEquals(110, state.viewportBorderOpacity);
         assertEquals(1, state.viewportBorderWidth);
@@ -97,11 +102,13 @@ class CodeScrollSettingsTest {
         assertEquals("", state.methodAnnotations);
         assertEquals("", state.markerRegex);
         assertEquals("ABC012", state.viewportColor);
-        assertEquals("808080", state.viewportBorderColor);
+        assertEquals("", state.viewportBorderColor);
 
         state.markerRegex = null;
         state.viewportColor = null;
         state.viewportBorderColor = null;
+        state.caretLineColor = "#12345";
+        state.textIntensity = 500;
         state.hoverDelayMs = 3_000;
         state.viewportBorderWidth = 100;
         state.markerFontSize = 0;
@@ -111,8 +118,10 @@ class CodeScrollSettingsTest {
         state.debounceMs = 10_000;
         state.validate();
         assertEquals("", state.markerRegex);
-        assertEquals("A0A0A0", state.viewportColor);
-        assertEquals("808080", state.viewportBorderColor);
+        assertEquals("", state.viewportColor);
+        assertEquals("", state.viewportBorderColor);
+        assertEquals("", state.caretLineColor);
+        assertEquals(100, state.textIntensity);
         assertEquals(2_000, state.hoverDelayMs);
         assertEquals(8, state.viewportBorderWidth);
         assertEquals(6, state.markerFontSize);
@@ -245,10 +254,27 @@ class CodeScrollSettingsTest {
 
     @Test
     void colorHelperNormalizesRgbClampsAlphaAndHandlesInvalidInput() {
-        assertEquals(new Color(0xab, 0xc0, 0x12, 35), CodeScrollSettings.color(" #abc012 ", 35));
-        assertEquals(0, CodeScrollSettings.color("000000", -10).getAlpha());
-        assertEquals(255, CodeScrollSettings.color("FFFFFF", 999).getAlpha());
-        assertEquals(new Color(0xa0, 0xa0, 0xa0, 110), CodeScrollSettings.color(null, 110));
-        assertEquals(new Color(0xa0, 0xa0, 0xa0, 110), CodeScrollSettings.color("bad", 110));
+        Color scheme = new Color(0x10, 0x20, 0x30);
+        assertEquals(new Color(0xab, 0xc0, 0x12, 35), CodeScrollSettings.color(" #abc012 ", scheme, 35));
+        assertEquals(0, CodeScrollSettings.color("000000", scheme, -10).getAlpha());
+        assertEquals(255, CodeScrollSettings.color("FFFFFF", scheme, 999).getAlpha());
+        // Empty or invalid values follow the editor color scheme.
+        assertEquals(new Color(0x10, 0x20, 0x30, 110), CodeScrollSettings.color(null, scheme, 110));
+        assertEquals(new Color(0x10, 0x20, 0x30, 110), CodeScrollSettings.color("", scheme, 110));
+        assertEquals(new Color(0x10, 0x20, 0x30, 110), CodeScrollSettings.color("bad", scheme, 110));
+        assertEquals("0A0B0C", CodeScrollSettings.hex(new Color(10, 11, 12, 200)));
+        assertEquals("", CodeScrollSettings.hex(null));
+    }
+
+    @Test
+    void configurableDetectsAChangeInAnyPersistedField() throws Exception {
+        CodeScrollSettings.State base = new CodeScrollSettings.State();
+        assertTrue(CodeScrollConfigurable.sameState(base, new CodeScrollSettings.State()));
+        CodeScrollSettings.State changed = new CodeScrollSettings.State();
+        changed.declarationLabelColor = "112233";
+        assertFalse(CodeScrollConfigurable.sameState(base, changed));
+        changed = new CodeScrollSettings.State();
+        changed.textIntensity = 40;
+        assertFalse(CodeScrollConfigurable.sameState(base, changed));
     }
 }

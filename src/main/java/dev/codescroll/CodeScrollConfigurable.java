@@ -1,85 +1,141 @@
 package dev.codescroll;
 
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors;
+import com.intellij.openapi.editor.colors.CodeInsightColors;
+import com.intellij.openapi.editor.colors.ColorKey;
+import com.intellij.openapi.editor.colors.EditorColors;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.ui.ColorPanel;
+import com.intellij.ui.TitledSeparator;
+import com.intellij.ui.components.JBCheckBox;
+import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.JBScrollPane;
+import com.intellij.ui.components.JBTextArea;
+import com.intellij.ui.components.JBTextField;
+import com.intellij.util.ui.JBFont;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.BorderFactory;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSpinner;
-import javax.swing.JTextArea;
-import javax.swing.JTextField;
-import javax.swing.SpinnerNumberModel;
+import javax.swing.*;
 import javax.swing.text.NumberFormatter;
-import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.lang.reflect.Field;
 import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
 public final class CodeScrollConfigurable implements Configurable {
+    /**
+     * A color that follows the editor color scheme until "Custom" is selected; the picker then
+     * stores an explicit RRGGBB value. While not custom, the picker previews the scheme color.
+     */
+    private static final class ColorChoice {
+        final JBCheckBox custom = new JBCheckBox("Custom");
+        final ColorPanel picker = new ColorPanel();
+        final Function<EditorColorsScheme, Color> schemeColor;
+        final JPanel component = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+
+        ColorChoice(Function<EditorColorsScheme, Color> schemeColor) {
+            this.schemeColor = schemeColor;
+            component.setOpaque(false);
+            component.add(picker);
+            component.add(Box.createHorizontalStrut(JBUI.scale(8)));
+            component.add(custom);
+            custom.addActionListener(event -> {
+                if (!custom.isSelected()) picker.setSelectedColor(schemeColor());
+                picker.setEnabled(custom.isSelected());
+            });
+        }
+
+        private Color schemeColor() {
+            return schemeColor.apply(EditorColorsManager.getInstance().getGlobalScheme());
+        }
+
+        void reset(String hex) {
+            String normalized = CodeScrollSettings.normalizeColor(hex);
+            custom.setSelected(!normalized.isEmpty());
+            picker.setSelectedColor(normalized.isEmpty() ? schemeColor() : new Color(Integer.parseInt(normalized, 16)));
+            picker.setEnabled(custom.isSelected());
+        }
+
+        String value() {
+            return custom.isSelected() ? CodeScrollSettings.hex(picker.getSelectedColor()) : "";
+        }
+    }
+
     private JComponent component;
-    private JCheckBox enabled;
-    private JCheckBox leftAligned;
-    private JCheckBox fit;
-    private JCheckBox syntaxColors;
-    private JCheckBox showMarkers;
-    private JCheckBox showMethods;
-    private JCheckBox showPreview;
-    private JCheckBox scrollOnly;
-    private JCheckBox showMain;
-    private JCheckBox showDiff;
-    private JCheckBox showPreviewEditors;
-    private JCheckBox showConsole;
-    private JCheckBox showUntyped;
-    private JCheckBox hideScrollbar;
-    private JCheckBox autoWidth;
-    private JCheckBox lockWidth;
-    private JSpinner width;
-    private JSpinner pixelsPerLine;
-    private JSpinner minLines;
-    private JSpinner maxLines;
-    private JSpinner debounceMs;
-    private JTextField excludedExtensions;
-    private JTextField markerWords;
-    private JCheckBox fill;
+    private final List<JSpinner> spinners = new ArrayList<>();
+    private JBCheckBox enabled;
+    private JBCheckBox leftAligned;
+    private JBCheckBox fit;
+    private JBCheckBox fill;
+    private JBCheckBox syntaxColors;
     private JComboBox<CodeScrollSettings.RenderStyle> renderStyle;
-    private JComboBox<CodeScrollSettings.ClickTiming> clickTiming;
-    private JCheckBox clickByMousePosition;
+    private JSpinner textIntensity;
+    private JBCheckBox hideScrollbar;
+    private JBCheckBox autoWidth;
+    private JBCheckBox lockWidth;
+    private JSpinner width;
     private JSpinner diffWidth;
     private JSpinner previewWidth;
     private JSpinner consoleWidth;
     private JSpinner untypedWidth;
-    private JCheckBox hoverOnly;
-    private JCheckBox showQuickHide;
+    private JSpinner pixelsPerLine;
+    private JBCheckBox showPreview;
+    private JBCheckBox scrollOnly;
+    private JComboBox<CodeScrollSettings.ClickTiming> clickTiming;
+    private JBCheckBox clickByMousePosition;
+    private JBCheckBox hoverOnly;
+    private JBCheckBox showQuickHide;
     private JSpinner hoverDelayMs;
-    private JCheckBox emptyConsole;
-    private JCheckBox emptyUntyped;
-    private JCheckBox outOfRangeEmpty;
-    private JTextField viewportColor;
-    private JTextField viewportBorderColor;
+    private JBCheckBox previewWheel;
+    private JBCheckBox showRenderedMarkdown;
+    private JBCheckBox showMain;
+    private JBCheckBox showDiff;
+    private JBCheckBox showPreviewEditors;
+    private JBCheckBox showConsole;
+    private JBCheckBox showUntyped;
+    private JBCheckBox emptyConsole;
+    private JBCheckBox emptyUntyped;
+    private JBCheckBox outOfRangeEmpty;
+    private JSpinner minLines;
+    private JSpinner maxLines;
+    private JSpinner debounceMs;
+    private JBTextField excludedExtensions;
+    private ColorChoice viewportColor;
+    private ColorChoice viewportBorderColor;
+    private ColorChoice caretLineColor;
+    private ColorChoice selectionColor;
+    private ColorChoice markerLabelColor;
+    private ColorChoice declarationLabelColor;
     private JSpinner viewportOpacity;
     private JSpinner viewportBorderOpacity;
     private JSpinner viewportBorderWidth;
-    private JCheckBox showBookmarks;
-    private JCheckBox showVcs;
-    private JCheckBox showDiagnostics;
-    private JCheckBox showSearch;
-    private JCheckBox fullLineDiagnostics;
-    private JCheckBox fullLineMarkup;
-    private JTextArea methodNames;
-    private JTextArea methodAnnotations;
-    private JTextField markerRegex;
+    private JBCheckBox showMarkers;
+    private JBCheckBox showMethods;
+    private JBCheckBox showBookmarks;
+    private JBCheckBox showVcs;
+    private JBCheckBox showDiagnostics;
+    private JBCheckBox showSearch;
+    private JBCheckBox fullLineDiagnostics;
+    private JBCheckBox fullLineMarkup;
+    private JBTextField markerWords;
+    private JBTextArea methodNames;
+    private JBTextArea methodAnnotations;
+    private JBTextField markerRegex;
     private JSpinner markerFontSize;
-    private JCheckBox showRenderedMarkdown;
-    private JCheckBox previewWheel;
 
     @Override
     public @NotNull String getDisplayName() {
@@ -88,230 +144,223 @@ public final class CodeScrollConfigurable implements Configurable {
 
     @Override
     public @Nullable JComponent createComponent() {
-        if (component != null) {
-            return component;
-        }
-
+        if (component != null) return component;
         JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        addSection(form, "Appearance");
-        enabled = addCheckbox(form, "Enable minimap", "Show the Code Scroll minimap globally.");
-        leftAligned = addCheckbox(form, "Align left", "Place the minimap on the left side of the editor.");
-        fit = addCheckbox(form, "Fit to editor height", "Scale the document to fit the available minimap height.");
-        syntaxColors = addCheckbox(form, "Syntax colors", "Use syntax highlighting colors in the minimap.");
-        fill = addCheckbox(form, "Fill editor height", "Fill available height even for short documents.");
-        renderStyle = new JComboBox<>(CodeScrollSettings.RenderStyle.values());
-        addRow(form, labeledControl("Render style", renderStyle), "CLEAN uses compact strokes; ACCURATE uses glyph shapes.");
-        hideScrollbar = addCheckbox(form, "Hide editor scrollbar", "Hide the editor's normal vertical scrollbar.");
-        autoWidth = addCheckbox(form, "Automatic width", "Reduce minimap width in narrow and split editors.");
-        lockWidth = addCheckbox(form, "Lock width", "Keep the minimap width fixed instead of allowing resizing.");
-        width = addSpinner(form, "Main width (px)", 110, 40, 300, "Main editor minimap width: 40 to 300 pixels.");
-        diffWidth = addSpinner(form, "Diff width (px)", 60, 40, 300, "Diff editor width: 40 to 300 pixels.");
-        previewWidth = addSpinner(form, "Preview width (px)", 70, 40, 300, "Preview editor width: 40 to 300 pixels.");
-        consoleWidth = addSpinner(form, "Console width (px)", 60, 40, 300, "Console width: 40 to 300 pixels.");
-        untypedWidth = addSpinner(form, "Untyped width (px)", 60, 40, 300, "Untyped editor width: 40 to 300 pixels.");
-        pixelsPerLine = addSpinner(form, "Pixels per line", 2, 1, 8,
-                "Line height when not fitting the document: 1 to 8 pixels.");
-        addSection(form, "Navigation and Preview");
-        showPreview = addCheckbox(form, "Show hover preview", "Preview source code when hovering over the minimap.");
-        scrollOnly = addCheckbox(form, "Scroll only", "Navigate by scrolling without moving the text caret.");
-        clickTiming = new JComboBox<>(CodeScrollSettings.ClickTiming.values());
-        addRow(form, labeledControl("Click timing", clickTiming), "Navigate on mouse DOWN, mouse UP, or NONE.");
-        clickByMousePosition = addCheckbox(form, "Click by mouse position", "Center navigation on the clicked source position.");
-        hoverOnly = addCheckbox(form, "Show only on hover", "Reveal the minimap while the editor edge is hovered.");
-        showQuickHide = addCheckbox(form, "Show quick hide", "Offer a quick-hide control on the minimap.");
-        hoverDelayMs = addSpinner(form, "Hover delay (ms)", 250, 0, 2_000, "Preview/reveal delay: 0 to 2000 milliseconds.");
-        previewWheel = addCheckbox(form, "Preview mouse wheel", "Allow scrolling inside the hover preview.");
-        showRenderedMarkdown = addCheckbox(form, "Rendered Markdown", "Show a minimap for rendered Markdown previews.");
-        addSection(form, "Editor Visibility");
-        showMain = addCheckbox(form, "Main editors", "Show the minimap in regular file editors.");
-        showDiff = addCheckbox(form, "Diff editors", "Show the minimap in diff views.");
-        showPreviewEditors = addCheckbox(form, "Preview editors", "Show the minimap in preview editor views.");
-        showConsole = addCheckbox(form, "Console editors", "Show the minimap in console output views.");
-        showUntyped = addCheckbox(form, "Untyped editors", "Show the minimap in editors without a recognized file type.");
-        emptyConsole = addCheckbox(form, "Empty console minimap", "Keep the console minimap empty instead of drawing text.");
-        emptyUntyped = addCheckbox(form, "Empty untyped minimap", "Keep the untyped minimap empty instead of drawing text.");
-        outOfRangeEmpty = addCheckbox(form, "Empty outside line limits", "Keep an empty minimap rather than hiding it outside line limits.");
-        minLines = addSpinner(form, "Minimum lines", 0, 0, 1_000_000,
-                "Hide the minimap for documents below this line count; 0 disables the lower limit.");
-        maxLines = addSpinner(form, "Maximum lines", 1_000_000, 0, 1_000_000,
-                "Hide the minimap above this line count; must be at least the minimum.");
-        minLines.addChangeListener(event -> {
-            SpinnerNumberModel maximumModel = (SpinnerNumberModel) maxLines.getModel();
-            int minimum = number(minLines);
-            if (number(maxLines) < minimum) {
-                maxLines.setValue(minimum);
-            }
-            maximumModel.setMinimum(minimum);
-        });
-        debounceMs = addSpinner(form, "Update delay (ms)", 120, 50, 2_000,
-                "Delay after edits before updating the minimap: 50 to 2000 milliseconds.");
-        excludedExtensions = addTextField(form, "Excluded extensions",
-                "Comma-separated file extensions without dots, for example ipynb,log.");
-        addSection(form, "Viewport");
-        viewportColor = addTextField(form, "Viewport color", "Six hexadecimal RGB digits; an optional # prefix is accepted.");
-        viewportBorderColor = addTextField(form, "Viewport border color", "Six hexadecimal RGB digits; an optional # prefix is accepted.");
-        viewportOpacity = addSpinner(form, "Viewport opacity", 35, 0, 255, "Alpha: 0 transparent to 255 opaque.");
-        viewportBorderOpacity = addSpinner(form, "Border opacity", 110, 0, 255, "Alpha: 0 transparent to 255 opaque.");
-        viewportBorderWidth = addSpinner(form, "Border width (px)", 1, 0, 8, "Border thickness: 0 to 8 pixels.");
-        addSection(form, "Markers and Highlights");
-        showMarkers = addCheckbox(form, "Show markers", "Highlight occurrences of the configured comment markers.");
-        showMethods = addCheckbox(form, "Show declarations", "Show method and class locations in the minimap.");
-        showBookmarks = addCheckbox(form, "Show bookmarks", "Show editor bookmarks.");
-        showVcs = addCheckbox(form, "Show VCS changes", "Show version-control change markers.");
-        showDiagnostics = addCheckbox(form, "Show diagnostics", "Show errors and warnings.");
-        showSearch = addCheckbox(form, "Show search results", "Show search matches.");
-        fullLineDiagnostics = addCheckbox(form, "Full-line diagnostics", "Extend diagnostic highlights across the minimap line.");
-        fullLineMarkup = addCheckbox(form, "Full-line markup", "Extend other editor markup across the minimap line.");
-        markerWords = addTextField(form, "Marker words",
-                "Comma-separated words to highlight, for example TODO,FIXME,MARK,region.");
-        methodNames = addTextArea(form, "Method names", "Comma/newline-separated filters; * matches any text, ? one character. Empty matches no methods.");
-        methodAnnotations = addTextArea(form, "Method annotations", "Comma/newline-separated annotation filters, with optional @; empty allows all annotations.");
-        markerRegex = addTextField(form, "Comment marker regex", "Literals, classes, anchors, ordinary escapes; one quantifier maximum. No groups, alternation, lookaround or backreferences. Max 256 characters; scans 512 per line.");
-        markerFontSize = addSpinner(form, "Marker font size", 10, 6, 36, "Marker label size: 6 to 36 points.");
+        form.setBorder(JBUI.Borders.empty(4, 0, 16, 0));
 
-        JPanel container = new JPanel(new BorderLayout());
-        container.add(form, BorderLayout.NORTH);
-        JScrollPane scrollPane = new JScrollPane(container);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder());
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        section(form, "Appearance");
+        enabled = checkbox(form, "Enable minimap", "Show the Code Scroll minimap globally.");
+        leftAligned = checkbox(form, "Align left", "Place the minimap on the left side of the editor.");
+        fit = checkbox(form, "Fit to editor height", "Scale the document to fit the available minimap height.");
+        fill = checkbox(form, "Fill editor height", "With Fit, stretch short documents to the full height.");
+        syntaxColors = checkbox(form, "Syntax colors", "Use the editor's syntax highlighting colors in the minimap.");
+        renderStyle = new JComboBox<>(CodeScrollSettings.RenderStyle.values());
+        row(form, "Render style:", renderStyle, "CLEAN draws solid strokes; ACCURATE shades each character by its glyph shape.");
+        textIntensity = spinner(form, "Text intensity (%):", 20, 100,
+                "How strongly minimap text stands out from the editor background, 20 to 100.");
+        pixelsPerLine = spinner(form, "Pixels per line:", 1, 8, "Line height when not fitting the document, 1 to 8.");
+        hideScrollbar = checkbox(form, "Hide editor scrollbar", "Hide the editor's own vertical scrollbar while a minimap is shown.");
+
+        section(form, "Width");
+        autoWidth = checkbox(form, "Automatic width", "Reduce the minimap width in narrow and split editors.");
+        lockWidth = checkbox(form, "Lock width", "Disable resizing by dragging the minimap edge.");
+        width = spinner(form, "Main editors (px):", 40, 300, "Width in regular file editors, 40 to 300.");
+        diffWidth = spinner(form, "Diff editors (px):", 40, 300, "Width in diff and merge views, 40 to 300.");
+        previewWidth = spinner(form, "Preview editors (px):", 40, 300, "Width in preview editors, 40 to 300.");
+        consoleWidth = spinner(form, "Consoles (px):", 40, 300, "Width in console output, 40 to 300.");
+        untypedWidth = spinner(form, "Untyped editors (px):", 40, 300, "Width in editors without a file type, 40 to 300.");
+
+        section(form, "Colors");
+        viewportColor = color(form, "Viewport:", scheme -> key(scheme, EditorColors.SELECTION_BACKGROUND_COLOR),
+                "Fill of the visible-area frame. Follows the scheme's selection background unless Custom.");
+        viewportOpacity = spinner(form, "Viewport opacity:", 0, 255, "Alpha of the viewport fill: 0 transparent, 255 opaque.");
+        viewportBorderColor = color(form, "Viewport border:", scheme -> key(scheme, EditorColors.SELECTION_BACKGROUND_COLOR),
+                "Border of the visible-area frame. Follows the scheme's selection background unless Custom.");
+        viewportBorderOpacity = spinner(form, "Border opacity:", 0, 255, "Alpha of the viewport border: 0 transparent, 255 opaque.");
+        viewportBorderWidth = spinner(form, "Border width (px):", 0, 8, "Thickness of the viewport border; 0 hides it.");
+        caretLineColor = color(form, "Caret line:", scheme -> key(scheme, EditorColors.CARET_COLOR),
+                "Line marking the caret position. Follows the scheme's caret color unless Custom.");
+        selectionColor = color(form, "Selection:", scheme -> key(scheme, EditorColors.SELECTION_BACKGROUND_COLOR),
+                "Band marking selected lines. Follows the scheme's selection background unless Custom.");
+        markerLabelColor = color(form, "Marker labels:", scheme -> foreground(scheme, CodeInsightColors.TODO_DEFAULT_ATTRIBUTES),
+                "TODO, region and custom marker labels. Follows the scheme's TODO color unless Custom.");
+        declarationLabelColor = color(form, "Declaration labels:",
+                scheme -> foreground(scheme, DefaultLanguageHighlighterColors.FUNCTION_DECLARATION),
+                "Method and class labels. Follows the scheme's function declaration color unless Custom.");
+
+        section(form, "Navigation and Preview");
+        clickTiming = new JComboBox<>(CodeScrollSettings.ClickTiming.values());
+        row(form, "Click timing:", clickTiming, "Navigate on mouse DOWN or UP; NONE allows only dragging the viewport.");
+        clickByMousePosition = checkbox(form, "Click by mouse position", "Place the caret at the clicked column, not just the clicked line.");
+        scrollOnly = checkbox(form, "Scroll only", "Scroll the editor on click without moving the caret or selection.");
+        showPreview = checkbox(form, "Show hover preview", "Show the code under the pointer in a popup while hovering.");
+        previewWheel = checkbox(form, "Scroll preview with mouse wheel", "While the preview is open, the wheel moves the preview instead of the editor.");
+        hoverDelayMs = spinner(form, "Hover delay (ms):", 0, 2_000, "Delay before the preview or a hover-only minimap appears.");
+        hoverOnly = checkbox(form, "Show only on hover", "Keep the minimap collapsed to a narrow strip until the pointer rests on it.");
+        showQuickHide = checkbox(form, "Show quick hide button", "Show a × button that hides the minimap in the current editor.");
+        showRenderedMarkdown = checkbox(form, "Rendered Markdown minimap", "Show a minimap inside the rendered Markdown preview.");
+
+        section(form, "Editors");
+        showMain = checkbox(form, "Main editors", "Show the minimap in regular file editors.");
+        showDiff = checkbox(form, "Diff editors", "Show the minimap in diff and merge views.");
+        showPreviewEditors = checkbox(form, "Preview editors", "Show the minimap in preview editors.");
+        showConsole = checkbox(form, "Consoles", "Show the minimap in console output.");
+        emptyConsole = checkbox(form, "Keep console minimap empty", "Draw only the viewport in consoles, without text.");
+        showUntyped = checkbox(form, "Untyped editors", "Show the minimap in editors without a recognized file type.");
+        emptyUntyped = checkbox(form, "Keep untyped minimap empty", "Draw only the viewport in untyped editors, without text.");
+        minLines = spinner(form, "Minimum lines:", 0, 1_000_000, "Hide the minimap for shorter documents; 0 disables the limit.");
+        maxLines = spinner(form, "Maximum lines:", 0, 1_000_000, "Hide the minimap for longer documents; at least the minimum.");
+        minLines.addChangeListener(event -> {
+            int minimum = number(minLines);
+            if (number(maxLines) < minimum) maxLines.setValue(minimum);
+            ((SpinnerNumberModel) maxLines.getModel()).setMinimum(minimum);
+        });
+        outOfRangeEmpty = checkbox(form, "Keep an empty minimap outside the line limits", "Show an empty, still navigable minimap instead of hiding it.");
+        excludedExtensions = textField(form, "Excluded extensions:", "Comma-separated extensions without dots, for example ipynb,log.");
+        debounceMs = spinner(form, "Update delay (ms):", 50, 2_000, "Delay after edits before the minimap is redrawn.");
+
+        section(form, "Markers and Highlights");
+        showDiagnostics = checkbox(form, "Errors and warnings", "Mark diagnostics on the far edge of the minimap.");
+        fullLineDiagnostics = checkbox(form, "Full-line diagnostics", "Draw diagnostics across the whole minimap line.");
+        showVcs = checkbox(form, "VCS changes", "Mark added, changed and deleted lines on the editor-facing edge.");
+        showBookmarks = checkbox(form, "Bookmarks", "Mark bookmarked lines.");
+        showSearch = checkbox(form, "Search results and usages", "Highlight find results and highlighted usages.");
+        fullLineMarkup = checkbox(form, "Full-line other markup", "Draw remaining editor highlights across the whole line.");
+        showMarkers = checkbox(form, "Comment markers", "Label comments that contain the marker words or regex below.");
+        markerWords = textField(form, "Marker words:", "Comma-separated words, for example TODO,FIXME,MARK,region.");
+        markerRegex = textField(form, "Marker regex:",
+                "Literals, classes, anchors and simple escapes, one quantifier at most; no groups or alternation. Up to 256 characters.");
+        showMethods = checkbox(form, "Declarations", "Label method and class declarations.");
+        methodNames = textArea(form, "Method names:", "Comma- or newline-separated filters; * matches any text and ? one character. Empty matches no methods.");
+        methodAnnotations = textArea(form, "Method annotations:", "Comma- or newline-separated annotation filters, @ optional. Empty allows all methods.");
+        markerFontSize = spinner(form, "Label font size:", 6, 36, "Size of marker and declaration labels, 6 to 36.");
+
+        GridBagConstraints filler = cell(nextRow(form), 0, 2, 0, 0);
+        filler.weighty = 1;
+        JPanel spacer = new JPanel();
+        spacer.setOpaque(false);
+        form.add(spacer, filler);
+        JBScrollPane scrollPane = new JBScrollPane(form);
+        scrollPane.setBorder(JBUI.Borders.empty());
+        scrollPane.getVerticalScrollBar().setUnitIncrement(JBUI.scale(16));
         component = scrollPane;
         reset();
         return component;
     }
 
-    private static JCheckBox addCheckbox(JPanel form, String title, String explanation) {
-        JCheckBox checkbox = new JCheckBox(title);
-        addRow(form, checkbox, explanation);
+    private static Color key(EditorColorsScheme scheme, ColorKey key) {
+        Color color = scheme.getColor(key);
+        return color != null ? color : scheme.getDefaultForeground();
+    }
+
+    private static Color foreground(EditorColorsScheme scheme, TextAttributesKey key) {
+        var attributes = scheme.getAttributes(key);
+        return attributes != null && attributes.getForegroundColor() != null
+                ? attributes.getForegroundColor() : scheme.getDefaultForeground();
+    }
+
+    private static int nextRow(JPanel form) {
+        Integer row = (Integer) form.getClientProperty(CodeScrollConfigurable.class);
+        int value = row == null ? 0 : row;
+        form.putClientProperty(CodeScrollConfigurable.class, value + 1);
+        return value;
+    }
+
+    private static GridBagConstraints cell(int row, int column, int width, int top, int left) {
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = column;
+        constraints.gridy = row;
+        constraints.gridwidth = width;
+        constraints.anchor = GridBagConstraints.WEST;
+        constraints.insets = JBUI.insets(top, left, 0, 0);
+        return constraints;
+    }
+
+    private static void section(JPanel form, String title) {
+        GridBagConstraints constraints = cell(nextRow(form), 0, 2, 14, 0);
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.weightx = 1;
+        form.add(new TitledSeparator(title), constraints);
+    }
+
+    /** The explanation sits under its control as a small, secondary-colored comment line. */
+    private static void comment(JPanel form, int column, int left, String text) {
+        JBLabel label = new JBLabel(text);
+        label.setForeground(UIUtil.getContextHelpForeground());
+        label.setFont(JBFont.small());
+        form.add(label, cell(nextRow(form), column, 2 - column, 2, left));
+    }
+
+    private static JBCheckBox checkbox(JPanel form, String title, String comment) {
+        JBCheckBox checkbox = new JBCheckBox(title);
+        form.add(checkbox, cell(nextRow(form), 0, 2, 8, 16));
+        comment(form, 0, 16 + UIUtil.getCheckBoxTextHorizontalOffset(checkbox), comment);
         return checkbox;
     }
 
-    private static void addSection(JPanel form, String title) {
-        JLabel heading = new JLabel(title);
-        heading.setFont(heading.getFont().deriveFont(java.awt.Font.BOLD));
-        heading.setBorder(BorderFactory.createEmptyBorder(12, 0, 4, 0));
-        addRow(form, heading, "");
+    private static void row(JPanel form, String label, JComponent control, String comment) {
+        JBLabel title = new JBLabel(label);
+        title.setLabelFor(control);
+        GridBagConstraints labelCell = cell(nextRow(form), 0, 1, 8, 16);
+        form.add(title, labelCell);
+        GridBagConstraints controlCell = (GridBagConstraints) labelCell.clone();
+        controlCell.gridx = 1;
+        controlCell.insets = JBUI.insets(8, 8, 0, 0);
+        controlCell.weightx = 1;
+        form.add(control, controlCell);
+        comment(form, 1, 8, comment);
     }
 
-    private JSpinner[] spinners() {
-        return new JSpinner[]{width, diffWidth, previewWidth, consoleWidth, untypedWidth,
-                pixelsPerLine, minLines, maxLines, debounceMs, hoverDelayMs,
-                viewportOpacity, viewportBorderOpacity, viewportBorderWidth, markerFontSize};
-    }
-
-    private static JSpinner addSpinner(JPanel form, String title, int value, int minimum,
-                                       int maximum, String explanation) {
-        JSpinner spinner = new JSpinner(new SpinnerNumberModel(value, minimum, maximum, 1));
+    private JSpinner spinner(JPanel form, String label, int minimum, int maximum, String comment) {
+        JSpinner spinner = new JSpinner(new SpinnerNumberModel(minimum, minimum, maximum, 1));
         JSpinner.NumberEditor editor = new JSpinner.NumberEditor(spinner, "0");
         spinner.setEditor(editor);
-        editor.getTextField().setColumns(8);
+        editor.getTextField().setColumns(7);
         NumberFormatter formatter = (NumberFormatter) editor.getTextField().getFormatter();
         formatter.setValueClass(Integer.class);
         formatter.setCommitsOnValidEdit(true);
-        addRow(form, labeledControl(title, spinner), explanation);
+        row(form, label, spinner, comment);
+        spinners.add(spinner);
         return spinner;
     }
 
-    private static JTextField addTextField(JPanel form, String title, String explanation) {
-        JTextField field = new JTextField(24);
-        addRow(form, labeledControl(title, field), explanation);
+    private static JBTextField textField(JPanel form, String label, String comment) {
+        JBTextField field = new JBTextField(28);
+        row(form, label, field, comment);
         return field;
     }
 
-    private static JTextArea addTextArea(JPanel form, String title, String explanation) {
-        JTextArea field = new JTextArea(3, 24);
-        field.setToolTipText(explanation);
-        addRow(form, labeledControl(title, new JScrollPane(field)), explanation);
-        return field;
+    private static JBTextArea textArea(JPanel form, String label, String comment) {
+        JBTextArea area = new JBTextArea(3, 28);
+        row(form, label, new JBScrollPane(area), comment);
+        return area;
     }
 
-    private static JPanel labeledControl(String title, JComponent control) {
-        JPanel row = new JPanel(new BorderLayout(8, 0));
-        JLabel label = new JLabel(title);
-        label.setLabelFor(control);
-        row.add(label, BorderLayout.WEST);
-        row.add(control, BorderLayout.CENTER);
-        return row;
-    }
-
-    private static void addRow(JPanel form, JComponent control, String explanation) {
-        int row = form.getComponentCount() / 2;
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridx = 0;
-        constraints.gridy = row;
-        constraints.anchor = GridBagConstraints.WEST;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
-        constraints.insets = new Insets(4, 0, 4, 16);
-        control.setToolTipText(explanation);
-        form.add(control, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1;
-        constraints.insets = new Insets(4, 0, 4, 0);
-        form.add(new JLabel(explanation), constraints);
+    private static ColorChoice color(JPanel form, String label, Function<EditorColorsScheme, Color> schemeColor,
+                                     String comment) {
+        ColorChoice choice = new ColorChoice(schemeColor);
+        row(form, label, choice.component, comment);
+        return choice;
     }
 
     @Override
     public boolean isModified() {
-        if (component == null) {
-            return false;
+        if (component == null) return false;
+        if (spinners.stream().anyMatch(CodeScrollConfigurable::hasUncommittedNumber)) return true;
+        return !sameState(readForm(), CodeScrollSettings.getInstance().getState());
+    }
+
+    /** Compares every persisted field, so new settings cannot be forgotten in isModified. */
+    static boolean sameState(CodeScrollSettings.State first, CodeScrollSettings.State second) {
+        try {
+            for (Field field : CodeScrollSettings.State.class.getFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                if (!Objects.equals(field.get(first), field.get(second))) return false;
+            }
+            return true;
+        } catch (IllegalAccessException exception) {
+            throw new IllegalStateException(exception);
         }
-        CodeScrollSettings.State saved = CodeScrollSettings.getInstance().getState();
-        CodeScrollSettings.State current = readForm();
-        return current.enabled != saved.enabled
-                || current.leftAligned != saved.leftAligned
-                || current.fit != saved.fit
-                || current.syntaxColors != saved.syntaxColors
-                || current.showMarkers != saved.showMarkers
-                || current.showMethods != saved.showMethods
-                || current.showPreview != saved.showPreview
-                || current.scrollOnly != saved.scrollOnly
-                || current.showMain != saved.showMain
-                || current.showDiff != saved.showDiff
-                || current.showPreviewEditors != saved.showPreviewEditors
-                || current.showConsole != saved.showConsole
-                || current.showUntyped != saved.showUntyped
-                || current.hideScrollbar != saved.hideScrollbar
-                || current.autoWidth != saved.autoWidth
-                || current.lockWidth != saved.lockWidth
-                || current.width != saved.width
-                || current.pixelsPerLine != saved.pixelsPerLine
-                || current.minLines != saved.minLines
-                || current.maxLines != saved.maxLines
-                || current.debounceMs != saved.debounceMs
-                || !Objects.equals(current.excludedExtensions, saved.excludedExtensions)
-                || !Objects.equals(current.markerWords, saved.markerWords)
-                || current.fill != saved.fill
-                || current.renderStyle != saved.renderStyle
-                || current.clickTiming != saved.clickTiming
-                || current.clickByMousePosition != saved.clickByMousePosition
-                || current.diffWidth != saved.diffWidth
-                || current.previewWidth != saved.previewWidth
-                || current.consoleWidth != saved.consoleWidth
-                || current.untypedWidth != saved.untypedWidth
-                || current.hoverOnly != saved.hoverOnly
-                || current.showQuickHide != saved.showQuickHide
-                || current.hoverDelayMs != saved.hoverDelayMs
-                || current.emptyConsole != saved.emptyConsole
-                || current.emptyUntyped != saved.emptyUntyped
-                || current.outOfRangeEmpty != saved.outOfRangeEmpty
-                || !Objects.equals(current.viewportColor, saved.viewportColor)
-                || !Objects.equals(current.viewportBorderColor, saved.viewportBorderColor)
-                || current.viewportOpacity != saved.viewportOpacity
-                || current.viewportBorderOpacity != saved.viewportBorderOpacity
-                || current.viewportBorderWidth != saved.viewportBorderWidth
-                || current.showBookmarks != saved.showBookmarks
-                || current.showVcs != saved.showVcs
-                || current.showDiagnostics != saved.showDiagnostics
-                || current.showSearch != saved.showSearch
-                || current.fullLineDiagnostics != saved.fullLineDiagnostics
-                || current.fullLineMarkup != saved.fullLineMarkup
-                || !Objects.equals(current.methodNames, saved.methodNames)
-                || !Objects.equals(current.methodAnnotations, saved.methodAnnotations)
-                || !Objects.equals(current.markerRegex, saved.markerRegex)
-                || current.markerFontSize != saved.markerFontSize
-                || current.showRenderedMarkdown != saved.showRenderedMarkdown
-                || current.previewWheel != saved.previewWheel
-                || java.util.Arrays.stream(spinners()).anyMatch(CodeScrollConfigurable::hasUncommittedNumber);
     }
 
     private static boolean hasUncommittedNumber(JSpinner spinner) {
@@ -321,35 +370,27 @@ public final class CodeScrollConfigurable implements Configurable {
 
     @Override
     public void apply() throws ConfigurationException {
-        if (component == null) {
-            return;
-        }
+        if (component == null) return;
         try {
-            for (JSpinner spinner : spinners()) {
-                String text = ((JSpinner.NumberEditor) spinner.getEditor()).getTextField().getText();
-                int value = Integer.parseInt(text);
+            for (JSpinner spinner : spinners) {
+                int value = Integer.parseInt(((JSpinner.NumberEditor) spinner.getEditor()).getTextField().getText());
                 SpinnerNumberModel model = (SpinnerNumberModel) spinner.getModel();
-                if (value < ((Number) model.getMinimum()).intValue()
-                        || value > ((Number) model.getMaximum()).intValue()) {
+                if (value < ((Number) model.getMinimum()).intValue() || value > ((Number) model.getMaximum()).intValue()) {
                     throw new IllegalArgumentException("Number is outside its allowed range.");
                 }
             }
-            for (JSpinner spinner : spinners()) spinner.commitEdit();
+            for (JSpinner spinner : spinners) spinner.commitEdit();
         } catch (ParseException | IllegalArgumentException exception) {
-            throw new ConfigurationException("Enter whole numbers within the displayed ranges.");
+            throw new ConfigurationException("Enter whole numbers within the described ranges.");
         }
         CodeScrollSettings.State state = readForm();
         if (state.maxLines < state.minLines) {
             throw new ConfigurationException("Maximum lines must be at least minimum lines.");
         }
-        if (!state.viewportColor.trim().matches("#?[0-9a-fA-F]{6}")
-                || !state.viewportBorderColor.trim().matches("#?[0-9a-fA-F]{6}")) {
-            throw new ConfigurationException("Enter viewport colors as six hexadecimal RGB digits.");
-        }
         try {
             MarkerScanner.compileMarkerRegex(state.markerRegex);
         } catch (IllegalArgumentException exception) {
-            throw new ConfigurationException("Invalid comment marker regex: " + exception.getMessage());
+            throw new ConfigurationException("Invalid marker regex: " + exception.getMessage());
         }
         state.validate();
         CodeScrollSettings.getInstance().loadState(state);
@@ -362,57 +403,62 @@ public final class CodeScrollConfigurable implements Configurable {
         state.enabled = enabled.isSelected();
         state.leftAligned = leftAligned.isSelected();
         state.fit = fit.isSelected();
+        state.fill = fill.isSelected();
         state.syntaxColors = syntaxColors.isSelected();
-        state.showMarkers = showMarkers.isSelected();
-        state.showMethods = showMethods.isSelected();
-        state.showPreview = showPreview.isSelected();
-        state.scrollOnly = scrollOnly.isSelected();
-        state.showMain = showMain.isSelected();
-        state.showDiff = showDiff.isSelected();
-        state.showPreviewEditors = showPreviewEditors.isSelected();
-        state.showConsole = showConsole.isSelected();
-        state.showUntyped = showUntyped.isSelected();
+        state.renderStyle = (CodeScrollSettings.RenderStyle) renderStyle.getSelectedItem();
+        state.textIntensity = number(textIntensity);
+        state.pixelsPerLine = number(pixelsPerLine);
         state.hideScrollbar = hideScrollbar.isSelected();
         state.autoWidth = autoWidth.isSelected();
         state.lockWidth = lockWidth.isSelected();
         state.width = number(width);
-        state.pixelsPerLine = number(pixelsPerLine);
-        state.minLines = number(minLines);
-        state.maxLines = number(maxLines);
-        state.debounceMs = number(debounceMs);
-        state.excludedExtensions = excludedExtensions.getText();
-        state.markerWords = markerWords.getText();
-        state.fill = fill.isSelected();
-        state.renderStyle = (CodeScrollSettings.RenderStyle) renderStyle.getSelectedItem();
-        state.clickTiming = (CodeScrollSettings.ClickTiming) clickTiming.getSelectedItem();
-        state.clickByMousePosition = clickByMousePosition.isSelected();
         state.diffWidth = number(diffWidth);
         state.previewWidth = number(previewWidth);
         state.consoleWidth = number(consoleWidth);
         state.untypedWidth = number(untypedWidth);
-        state.hoverOnly = hoverOnly.isSelected();
-        state.showQuickHide = showQuickHide.isSelected();
-        state.hoverDelayMs = number(hoverDelayMs);
-        state.emptyConsole = emptyConsole.isSelected();
-        state.emptyUntyped = emptyUntyped.isSelected();
-        state.outOfRangeEmpty = outOfRangeEmpty.isSelected();
-        state.viewportColor = viewportColor.getText();
-        state.viewportBorderColor = viewportBorderColor.getText();
+        state.viewportColor = viewportColor.value();
         state.viewportOpacity = number(viewportOpacity);
+        state.viewportBorderColor = viewportBorderColor.value();
         state.viewportBorderOpacity = number(viewportBorderOpacity);
         state.viewportBorderWidth = number(viewportBorderWidth);
-        state.showBookmarks = showBookmarks.isSelected();
-        state.showVcs = showVcs.isSelected();
+        state.caretLineColor = caretLineColor.value();
+        state.selectionColor = selectionColor.value();
+        state.markerLabelColor = markerLabelColor.value();
+        state.declarationLabelColor = declarationLabelColor.value();
+        state.clickTiming = (CodeScrollSettings.ClickTiming) clickTiming.getSelectedItem();
+        state.clickByMousePosition = clickByMousePosition.isSelected();
+        state.scrollOnly = scrollOnly.isSelected();
+        state.showPreview = showPreview.isSelected();
+        state.previewWheel = previewWheel.isSelected();
+        state.hoverDelayMs = number(hoverDelayMs);
+        state.hoverOnly = hoverOnly.isSelected();
+        state.showQuickHide = showQuickHide.isSelected();
+        state.showRenderedMarkdown = showRenderedMarkdown.isSelected();
+        state.showMain = showMain.isSelected();
+        state.showDiff = showDiff.isSelected();
+        state.showPreviewEditors = showPreviewEditors.isSelected();
+        state.showConsole = showConsole.isSelected();
+        state.emptyConsole = emptyConsole.isSelected();
+        state.showUntyped = showUntyped.isSelected();
+        state.emptyUntyped = emptyUntyped.isSelected();
+        state.minLines = number(minLines);
+        state.maxLines = number(maxLines);
+        state.outOfRangeEmpty = outOfRangeEmpty.isSelected();
+        state.excludedExtensions = excludedExtensions.getText();
+        state.debounceMs = number(debounceMs);
         state.showDiagnostics = showDiagnostics.isSelected();
-        state.showSearch = showSearch.isSelected();
         state.fullLineDiagnostics = fullLineDiagnostics.isSelected();
+        state.showVcs = showVcs.isSelected();
+        state.showBookmarks = showBookmarks.isSelected();
+        state.showSearch = showSearch.isSelected();
         state.fullLineMarkup = fullLineMarkup.isSelected();
+        state.showMarkers = showMarkers.isSelected();
+        state.markerWords = markerWords.getText();
+        state.markerRegex = markerRegex.getText();
+        state.showMethods = showMethods.isSelected();
         state.methodNames = methodNames.getText();
         state.methodAnnotations = methodAnnotations.getText();
-        state.markerRegex = markerRegex.getText();
         state.markerFontSize = number(markerFontSize);
-        state.showRenderedMarkdown = showRenderedMarkdown.isSelected();
-        state.previewWheel = previewWheel.isSelected();
         return state;
     }
 
@@ -422,126 +468,77 @@ public final class CodeScrollConfigurable implements Configurable {
 
     @Override
     public void reset() {
-        if (component == null) {
-            return;
-        }
+        if (component == null) return;
         CodeScrollSettings.State state = CodeScrollSettings.getInstance().getState();
         enabled.setSelected(state.enabled);
         leftAligned.setSelected(state.leftAligned);
         fit.setSelected(state.fit);
+        fill.setSelected(state.fill);
         syntaxColors.setSelected(state.syntaxColors);
-        showMarkers.setSelected(state.showMarkers);
-        showMethods.setSelected(state.showMethods);
-        showPreview.setSelected(state.showPreview);
-        scrollOnly.setSelected(state.scrollOnly);
-        showMain.setSelected(state.showMain);
-        showDiff.setSelected(state.showDiff);
-        showPreviewEditors.setSelected(state.showPreviewEditors);
-        showConsole.setSelected(state.showConsole);
-        showUntyped.setSelected(state.showUntyped);
+        renderStyle.setSelectedItem(state.renderStyle);
+        textIntensity.setValue(state.textIntensity);
+        pixelsPerLine.setValue(state.pixelsPerLine);
         hideScrollbar.setSelected(state.hideScrollbar);
         autoWidth.setSelected(state.autoWidth);
         lockWidth.setSelected(state.lockWidth);
         width.setValue(state.width);
-        pixelsPerLine.setValue(state.pixelsPerLine);
-        minLines.setValue(state.minLines);
-        maxLines.setValue(state.maxLines);
-        debounceMs.setValue(state.debounceMs);
-        excludedExtensions.setText(state.excludedExtensions);
-        markerWords.setText(state.markerWords);
-        fill.setSelected(state.fill);
-        renderStyle.setSelectedItem(state.renderStyle);
-        clickTiming.setSelectedItem(state.clickTiming);
-        clickByMousePosition.setSelected(state.clickByMousePosition);
         diffWidth.setValue(state.diffWidth);
         previewWidth.setValue(state.previewWidth);
         consoleWidth.setValue(state.consoleWidth);
         untypedWidth.setValue(state.untypedWidth);
-        hoverOnly.setSelected(state.hoverOnly);
-        showQuickHide.setSelected(state.showQuickHide);
-        hoverDelayMs.setValue(state.hoverDelayMs);
-        emptyConsole.setSelected(state.emptyConsole);
-        emptyUntyped.setSelected(state.emptyUntyped);
-        outOfRangeEmpty.setSelected(state.outOfRangeEmpty);
-        viewportColor.setText(state.viewportColor);
-        viewportBorderColor.setText(state.viewportBorderColor);
+        viewportColor.reset(state.viewportColor);
         viewportOpacity.setValue(state.viewportOpacity);
+        viewportBorderColor.reset(state.viewportBorderColor);
         viewportBorderOpacity.setValue(state.viewportBorderOpacity);
         viewportBorderWidth.setValue(state.viewportBorderWidth);
-        showBookmarks.setSelected(state.showBookmarks);
-        showVcs.setSelected(state.showVcs);
+        caretLineColor.reset(state.caretLineColor);
+        selectionColor.reset(state.selectionColor);
+        markerLabelColor.reset(state.markerLabelColor);
+        declarationLabelColor.reset(state.declarationLabelColor);
+        clickTiming.setSelectedItem(state.clickTiming);
+        clickByMousePosition.setSelected(state.clickByMousePosition);
+        scrollOnly.setSelected(state.scrollOnly);
+        showPreview.setSelected(state.showPreview);
+        previewWheel.setSelected(state.previewWheel);
+        hoverDelayMs.setValue(state.hoverDelayMs);
+        hoverOnly.setSelected(state.hoverOnly);
+        showQuickHide.setSelected(state.showQuickHide);
+        showRenderedMarkdown.setSelected(state.showRenderedMarkdown);
+        showMain.setSelected(state.showMain);
+        showDiff.setSelected(state.showDiff);
+        showPreviewEditors.setSelected(state.showPreviewEditors);
+        showConsole.setSelected(state.showConsole);
+        emptyConsole.setSelected(state.emptyConsole);
+        showUntyped.setSelected(state.showUntyped);
+        emptyUntyped.setSelected(state.emptyUntyped);
+        minLines.setValue(state.minLines);
+        maxLines.setValue(state.maxLines);
+        outOfRangeEmpty.setSelected(state.outOfRangeEmpty);
+        excludedExtensions.setText(state.excludedExtensions);
+        debounceMs.setValue(state.debounceMs);
         showDiagnostics.setSelected(state.showDiagnostics);
-        showSearch.setSelected(state.showSearch);
         fullLineDiagnostics.setSelected(state.fullLineDiagnostics);
+        showVcs.setSelected(state.showVcs);
+        showBookmarks.setSelected(state.showBookmarks);
+        showSearch.setSelected(state.showSearch);
         fullLineMarkup.setSelected(state.fullLineMarkup);
+        showMarkers.setSelected(state.showMarkers);
+        markerWords.setText(state.markerWords);
+        markerRegex.setText(state.markerRegex);
+        showMethods.setSelected(state.showMethods);
         methodNames.setText(state.methodNames);
         methodAnnotations.setText(state.methodAnnotations);
-        markerRegex.setText(state.markerRegex);
         markerFontSize.setValue(state.markerFontSize);
-        showRenderedMarkdown.setSelected(state.showRenderedMarkdown);
-        previewWheel.setSelected(state.previewWheel);
         // Setting an unchanged model value does not clear invalid text in its editor.
-        for (JSpinner spinner : spinners()) {
+        for (JSpinner spinner : spinners) {
             ((JSpinner.NumberEditor) spinner.getEditor()).getTextField().setValue(spinner.getValue());
         }
     }
 
     @Override
     public void disposeUIResources() {
+        // Fields are rebuilt by createComponent; dropping the root releases the whole Swing tree.
         component = null;
-        enabled = null;
-        leftAligned = null;
-        fit = null;
-        syntaxColors = null;
-        showMarkers = null;
-        showMethods = null;
-        showPreview = null;
-        scrollOnly = null;
-        showMain = null;
-        showDiff = null;
-        showPreviewEditors = null;
-        showConsole = null;
-        showUntyped = null;
-        hideScrollbar = null;
-        autoWidth = null;
-        lockWidth = null;
-        width = null;
-        pixelsPerLine = null;
-        minLines = null;
-        maxLines = null;
-        debounceMs = null;
-        excludedExtensions = null;
-        markerWords = null;
-        fill = null;
-        renderStyle = null;
-        clickTiming = null;
-        clickByMousePosition = null;
-        diffWidth = null;
-        previewWidth = null;
-        consoleWidth = null;
-        untypedWidth = null;
-        hoverOnly = null;
-        showQuickHide = null;
-        hoverDelayMs = null;
-        emptyConsole = null;
-        emptyUntyped = null;
-        outOfRangeEmpty = null;
-        viewportColor = null;
-        viewportBorderColor = null;
-        viewportOpacity = null;
-        viewportBorderOpacity = null;
-        viewportBorderWidth = null;
-        showBookmarks = null;
-        showVcs = null;
-        showDiagnostics = null;
-        showSearch = null;
-        fullLineDiagnostics = null;
-        fullLineMarkup = null;
-        methodNames = null;
-        methodAnnotations = null;
-        markerRegex = null;
-        markerFontSize = null;
-        showRenderedMarkdown = null;
-        previewWheel = null;
+        spinners.clear();
     }
 }

@@ -30,6 +30,16 @@ public final class RasterRenderer {
                                        int[] starts, int[] ends, int[] rows,
                                        int foreground, int background, List<Token> tokens,
                                        boolean accurate, Runnable checkCanceled) {
+        return render(text, width, height, starts, ends, rows, foreground, background, tokens, accurate, 100,
+                checkCanceled);
+    }
+
+    /** @param intensity text strength against the background in percent; 100 draws the token colors as-is. */
+    public static BufferedImage render(CharSequence text, int width, int height,
+                                       int[] starts, int[] ends, int[] rows,
+                                       int foreground, int background, List<Token> tokens,
+                                       boolean accurate, int intensity, Runnable checkCanceled) {
+        int strength = 256 * Math.clamp(intensity, 0, 100) / 100;
         if (text == null || starts == null || ends == null || rows == null || tokens == null
                 || starts.length != ends.length || starts.length != rows.length) {
             throw new IllegalArgumentException("Text, tokens and matching sample arrays are required");
@@ -85,8 +95,8 @@ public final class RasterRenderer {
                     }
                     int rgb = high >= 0 && offset < colors[high].end()
                             ? colors[high].rgb() : foreground;
-                    pixels[row * width + 4 + column] = accurate
-                            ? blend(rgb, background, coverage(c)) : rgb & 0xffffff;
+                    int cover = accurate ? coverage(c) * strength >> 8 : strength;
+                    pixels[row * width + 4 + column] = cover >= 256 ? rgb & 0xffffff : blend(rgb, background, cover);
                 }
                 // A supplementary code point occupies one cell, not two surrogate cells.
                 if (Character.isHighSurrogate(c) && offset + 1 < limit

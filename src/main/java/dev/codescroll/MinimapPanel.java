@@ -8,6 +8,9 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorKind;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.LogicalPosition;
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors;
+import com.intellij.openapi.editor.colors.CodeInsightColors;
+import com.intellij.openapi.editor.colors.ColorKey;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
@@ -51,6 +54,7 @@ public final class MinimapPanel extends JPanel implements Disposable {
     private static final int COLLAPSED_WIDTH = 8;
     private static final int RESIZE_EDGE = 5;
     private static final int QUICK_HIDE_SIZE = 12;
+    private static final int MIN_VIEWPORT_HEIGHT = 8;
     /** Bounds syntax-coloring work per frame; later samples fall back to the default foreground. */
     private static final int MAX_TOKENS = 200_000;
 
@@ -285,6 +289,7 @@ public final class MinimapPanel extends JPanel implements Disposable {
         int background = scheme.getDefaultBackground().getRGB();
         boolean textless = textless();
         boolean accurate = s.renderStyle == CodeScrollSettings.RenderStyle.ACCURATE;
+        int intensity = s.textIntensity;
         // The editor's incremental highlighter already holds lexer state for the whole document.
         EditorHighlighter highlighter = s.syntaxColors && editor instanceof EditorEx ex ? ex.getHighlighter() : null;
         boolean labels = !textless && (s.showMarkers || s.showMethods);
@@ -325,7 +330,7 @@ public final class MinimapPanel extends JPanel implements Disposable {
                     : tokens(highlighter, text.length(), starts, ends, samples);
             BufferedImage image = RasterRenderer.render(text, width, geometry.height(),
                     Arrays.copyOf(starts, samples), Arrays.copyOf(ends, samples), Arrays.copyOf(rows, samples),
-                    foreground, background, tokens, accurate, ProgressManager::checkCanceled);
+                    foreground, background, tokens, accurate, intensity, ProgressManager::checkCanceled);
             List<Label> found = new ArrayList<>();
             if (labels) {
                 for (var marker : MarkerScanner.scan(text, words, methods, methodNames, methodAnnotations,
@@ -376,21 +381,50 @@ public final class MinimapPanel extends JPanel implements Disposable {
         return tokens;
     }
 
+    /** Overlay colors: the editor color scheme by default, or custom picker values from settings. */
+    private record Palette(Color background, Color viewport, Color viewportBorder, Color caretLine,
+                           Color selection, Color markerLabel, Color declarationLabel, Color separator) {}
+
+    private Palette palette() {
+        var s = settings();
+        EditorColorsScheme scheme = editor.getColorsScheme();
+        Color background = scheme.getDefaultBackground();
+        Color foreground = scheme.getDefaultForeground();
+        Color selection = schemeColor(scheme, EditorColors.SELECTION_BACKGROUND_COLOR, foreground);
+        Color caret = schemeColor(scheme, EditorColors.CARET_COLOR, foreground);
+        var todo = scheme.getAttributes(CodeInsightColors.TODO_DEFAULT_ATTRIBUTES);
+        Color marker = todo != null && todo.getForegroundColor() != null ? todo.getForegroundColor() : caret;
+        var function = scheme.getAttributes(DefaultLanguageHighlighterColors.FUNCTION_DECLARATION);
+        Color declaration = function != null && function.getForegroundColor() != null
+                ? function.getForegroundColor() : foreground;
+        Color guide = schemeColor(scheme, EditorColors.INDENT_GUIDE_COLOR, foreground);
+        return new Palette(background,
+                CodeScrollSettings.color(s.viewportColor, selection, s.viewportOpacity),
+                CodeScrollSettings.color(s.viewportBorderColor, selection, s.viewportBorderOpacity),
+                CodeScrollSettings.color(s.caretLineColor, caret, 120),
+                CodeScrollSettings.color(s.selectionColor, selection, 110),
+                CodeScrollSettings.color(s.markerLabelColor, marker, 255),
+                CodeScrollSettings.color(s.declarationLabelColor, declaration, 255),
+                alpha(guide, 160));
+    }
+
+    private static Color schemeColor(EditorColorsScheme scheme, ColorKey key, Color fallback) {
+        Color color = scheme.getColor(key);
+        return color != null ? color : fallback;
+    }
+
     @Override protected void paintComponent(Graphics graphics) {
         if (disposed || editor.isDisposed()) return;
         Graphics2D g = (Graphics2D) graphics.create();
         try {
             var s = settings();
-            EditorColorsScheme scheme = editor.getColorsScheme();
-            Color background = scheme.getDefaultBackground();
-            g.setColor(background);
+            Palette palette = palette();
+            g.setColor(palette.background());
             g.fillRect(0, 0, getWidth(), getHeight());
-            Color accent = scheme.getColor(EditorColors.CARET_COLOR);
-            if (accent == null) accent = scheme.getDefaultForeground();
             MapGeometry geometry = geometry();
             Rectangle viewport = viewport(geometry);
             if (collapsed()) {
-                g.setColor(CodeScrollSettings.color(s.viewportBorderColor, s.viewportBorderOpacity));
+                g.setColor(palette.viewportBorder());
                 g.fillRect(getWidth() / 2 - 1, viewport.y, 3, viewport.height);
                 return;
             }
@@ -399,48 +433,48 @@ public final class MinimapPanel extends JPanel implements Disposable {
             if (selection.hasSelection()) {
                 int top = editor.getDocument().getLineNumber(selection.getSelectionStart());
                 int bottom = editor.getDocument().getLineNumber(selection.getSelectionEnd()) + 1;
-                Color color = scheme.getColor(EditorColors.SELECTION_BACKGROUND_COLOR);
-                g.setColor(alpha(color == null ? new Color(70, 135, 230) : color, 110));
+                g.setColor(palette.selection());
                 band(g, geometry, top, bottom, 0, getWidth());
             }
-            paintMarkup(g, geometry, editor.getMarkupModel(), accent);
-            if (editor instanceof EditorEx ex) paintMarkup(g, geometry, ex.getFilteredDocumentMarkupModel(), accent);
-            g.setColor(CodeScrollSettings.color(s.viewportColor, s.viewportOpacity));
+            paintMarkup(g, geometry, editor.getMarkupModel(), palette.caretLine());
+            if (editor instanceof EditorEx ex) paintMarkup(g, geometry, ex.getFilteredDocumentMarkupModel(), palette.caretLine());
+            g.setColor(palette.viewport());
             g.fill(viewport);
             if (s.viewportBorderWidth > 0) {
-                g.setColor(CodeScrollSettings.color(s.viewportBorderColor, s.viewportBorderOpacity));
+                g.setColor(palette.viewportBorder());
                 int border = Math.min(s.viewportBorderWidth, Math.max(1, viewport.height / 2));
                 g.fillRect(viewport.x, viewport.y, viewport.width, border);
                 g.fillRect(viewport.x, viewport.y + viewport.height - border, viewport.width, border);
                 g.fillRect(viewport.x, viewport.y, border, viewport.height);
                 g.fillRect(viewport.x + viewport.width - border, viewport.y, border, viewport.height);
             }
-            g.setColor(alpha(accent, 170));
+            g.setColor(palette.caretLine());
             int caretLine = editor.getCaretModel().getLogicalPosition().line;
             band(g, geometry, caretLine, caretLine + 1, 0, getWidth());
-            if (frame != null) paintLabels(g, geometry, background, accent, scheme.getDefaultForeground());
-            if (mouseInside && s.showQuickHide) paintQuickHide(g, background, scheme.getDefaultForeground());
-            g.setColor(alpha(accent, 55));
+            if (frame != null) paintLabels(g, geometry, palette);
+            if (mouseInside && s.showQuickHide) paintQuickHide(g, palette.background(), palette.declarationLabel());
+            g.setColor(palette.separator());
             int edge = s.leftAligned ? getWidth() - 1 : 0;
             g.drawLine(edge, 0, edge, getHeight());
         } finally { g.dispose(); }
     }
 
-    private void paintLabels(Graphics2D g, MapGeometry geometry, Color background, Color accent, Color foreground) {
+    private void paintLabels(Graphics2D g, MapGeometry geometry, Palette palette) {
         int size = settings().markerFontSize;
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         Font marker = new Font(Font.MONOSPACED, Font.PLAIN, size);
         Font declaration = marker.deriveFont(Font.BOLD);
         int height = size + 2;
         int previousBottom = -1;
+        Color plate = alpha(palette.background(), 215);
         for (Label label : frame.labels()) {
             int y = (int) geometry.y(label.line());
             // Closely spaced labels are skipped rather than drawn on top of each other.
             if (y < 0 || y >= getHeight() || y < previousBottom) continue;
-            g.setColor(alpha(background, 225));
+            g.setColor(plate);
             g.fillRect(3, y, getWidth() - 9, height);
             g.setFont(label.declaration() ? declaration : marker);
-            g.setColor(label.declaration() ? foreground : accent);
+            g.setColor(label.declaration() ? palette.declarationLabel() : palette.markerLabel());
             g.drawString(label.text(), 4, y + size);
             previousBottom = y + height + 1;
         }
@@ -461,10 +495,18 @@ public final class MinimapPanel extends JPanel implements Disposable {
         g.drawLine(box.x + box.width - 4, box.y + 3, box.x + 3, box.y + box.height - 4);
     }
 
+    /**
+     * The frame spans as many map lines as the editor can show, not just the lines that exist:
+     * otherwise a short or empty file gets a frame only a few pixels high that cannot be grabbed.
+     */
     private Rectangle viewport(MapGeometry geometry) {
-        int top = (int) Math.max(0, geometry.y(visibleStart()));
-        int bottom = (int) Math.min(getHeight(), Math.ceil(geometry.y(visibleEnd())));
-        return new Rectangle(0, top, getWidth(), Math.max(4, bottom - top));
+        Rectangle area = editor.getScrollingModel().getVisibleArea();
+        double lineHeight = Math.max(1, editor.getLineHeight());
+        int line = visibleStart();
+        double topLine = line + (area.y - editor.logicalPositionToXY(new LogicalPosition(line, 0)).y) / lineHeight;
+        int top = (int) Math.max(0, Math.floor(geometry.y(topLine)));
+        int height = (int) Math.ceil(area.height / lineHeight * geometry.scale());
+        return new Rectangle(0, top, getWidth(), Math.max(MIN_VIEWPORT_HEIGHT, height));
     }
 
     private void paintMarkup(Graphics2D g, MapGeometry geometry, MarkupModel model, Color accent) {

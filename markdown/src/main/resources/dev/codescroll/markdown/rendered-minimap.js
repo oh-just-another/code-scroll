@@ -6,6 +6,8 @@
     const MAX_BLOCKS = 1280;
     const MAX_HEADINGS = 256;
     const WIDTH = 96;
+    // Space reserved on the right of the page so the overlay never covers rendered content.
+    const GUTTER = WIDTH + 24;
     const MAX_HEIGHT = 1600;
     const CONTROL = "code-scroll.markdown.control";
     const REQUEST = "code-scroll.markdown.state-request";
@@ -37,6 +39,12 @@
         return clamp(delta * (mode === 1 ? 16 : mode === 2 ? visible : 1), -visible * 3, visible * 3);
     }
 
+    /** Number of text lines drawn for a block: about one per 22 CSS px, never denser than 3 map px. */
+    function textRows(blockHeight, mapHeight) {
+        const lines = Math.max(1, Math.round(blockHeight / 22));
+        return Math.max(1, Math.min(lines, Math.floor(mapHeight / 3) || 1, 64));
+    }
+
     function bitmapSize(height, ratio) {
         ratio = clamp(ratio || 1, 1, 2);
         return {width: Math.ceil(WIDTH * ratio), height: Math.ceil(clamp(height, 1, MAX_HEIGHT) * ratio)};
@@ -51,7 +59,10 @@
         canvas.tabIndex = 0;
         canvas.title = "Scroll rendered Markdown preview";
         canvas.style.cssText = "position:fixed;right:12px;top:12px;width:96px;z-index:2147483647;" +
-            "touch-action:none;cursor:pointer;border-radius:3px;box-shadow:0 0 0 1px #80808060;";
+            "touch-action:none;cursor:pointer;outline:none;border-left:1px solid rgba(128,128,128,0.25);";
+        const previousPadding = doc.documentElement.style.paddingRight;
+        const reserve = value => { doc.documentElement.style.paddingRight = value ? GUTTER + "px" : previousPadding; };
+        reserve(true);
         const ctx = canvas.getContext("2d", {alpha: false});
         if (!ctx) return null;
 
@@ -150,19 +161,27 @@
                 timer = win.setTimeout(() => { timer = 0; schedule(); }, Math.max(1, 120 - (time - lastSample)));
             }
             const contentWidth = Math.max(1, doc.body?.getBoundingClientRect().width || win.innerWidth);
+            const scale = height / total;
+            ctx.fillStyle = foreground;
             for (const sample of samples) {
-                const y = clamp(sample.top / total * height, 0, height);
-                const h = Math.min(12, Math.max(sample.heading ? 3 : 1, sample.height / total * height));
+                // Draw text blocks as thin text lines, like a code minimap, instead of solid bars.
+                const y = clamp(sample.top * scale, 0, height);
+                const h = Math.max(1, sample.height * scale);
                 const x = sample.heading ? 5 : clamp(sample.left / contentWidth * (WIDTH - 10), 5, WIDTH - 6);
-                ctx.fillStyle = foreground;
-                ctx.globalAlpha = sample.heading ? 0.85 : 0.32;
-                ctx.fillRect(x, y, Math.max(1, Math.min(WIDTH - 5 - x, sample.width / contentWidth * (WIDTH - 10))), h);
+                const w = Math.max(1, Math.min(WIDTH - 5 - x, sample.width / contentWidth * (WIDTH - 10)));
+                const rows = textRows(sample.height, h);
+                const step = h / rows;
+                const thickness = sample.heading ? Math.min(3, Math.max(1, step * 0.6)) : Math.min(2, Math.max(1, step * 0.4));
+                ctx.globalAlpha = sample.heading ? 0.55 : 0.28;
+                for (let row = 0; row < rows; row++) {
+                    const last = rows > 1 && row === rows - 1;
+                    ctx.fillRect(x, y + row * step, last ? Math.max(1, w * 0.6) : w, thickness);
+                }
             }
             const box = viewport(top, visible, total, height);
-            ctx.fillStyle = foreground;
-            ctx.globalAlpha = 0.15;
+            ctx.globalAlpha = visible >= total ? 0 : 0.07;
             ctx.fillRect(0, box.top, WIDTH, box.height);
-            ctx.globalAlpha = 0.65;
+            ctx.globalAlpha = visible >= total ? 0.12 : 0.3;
             ctx.strokeStyle = foreground;
             ctx.lineWidth = 1;
             ctx.strokeRect(0.5, box.top + 0.5, WIDTH - 1, Math.max(0, box.height - 1));
@@ -262,6 +281,7 @@
             win.clearTimeout(timer);
             win.clearInterval(poll);
             canvas.remove();
+            reserve(false);
             samples = [];
             if (win.__codeScrollMarkdownMinimap === api) delete win.__codeScrollMarkdownMinimap;
         }
@@ -270,6 +290,7 @@
             if (enabled === value) return;
             enabled = value;
             canvas.hidden = !value;
+            reserve(value);
             if (!value) {
                 independentUntil = 0;
                 if (drag && canvas.hasPointerCapture(drag.id)) canvas.releasePointerCapture(drag.id);
@@ -283,7 +304,7 @@
     }
 
     if (typeof module === "object" && module.exports) {
-        module.exports = {sampleIndices, viewport, scrollTarget, wheelPixels, bitmapSize, mount};
+        module.exports = {sampleIndices, viewport, scrollTarget, wheelPixels, bitmapSize, textRows, mount};
         return;
     }
     const win = window;

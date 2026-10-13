@@ -23,7 +23,12 @@ network clients, bytecode agents or third-party runtime JARs are bundled.
 - Left/right alignment, drag resizing, separate widths for main, diff, preview,
   console and untyped editors, automatic narrow-editor width and width lock.
 - Show-on-hover mode, a quick-hide button and "Hide in This Editor".
-- Configurable viewport color, border color, opacity and border width.
+- Overlay colors (viewport, border, caret line, selection, marker and
+  declaration labels) follow the editor color scheme by default; each can be
+  overridden with a color picker. Adjustable text intensity softens the map
+  against the editor background.
+- The viewport frame is as tall as the editor's visible area at map scale, so
+  it stays easy to grab in short and empty files.
 - Independent switches per editor kind, empty maps for console/untyped editors
   or outside line limits, extension exclusions and a View-menu toggle.
 - Frontend-only modular packaging, with a split-mode development sandbox.

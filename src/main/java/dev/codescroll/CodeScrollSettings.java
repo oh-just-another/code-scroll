@@ -33,17 +33,26 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
         this.state = state;
     }
 
-    public static Color color(String hex, int opacity) {
-        String normalized = normalizeColor(hex, "A0A0A0");
-        return new Color((Integer.parseInt(normalized, 16) & 0xffffff)
-                | (Math.clamp(opacity, 0, 255) << 24), true);
+    /**
+     * Resolves a configured color: a custom RRGGBB value when set, otherwise the color-scheme
+     * fallback. An empty value means "follow the editor color scheme".
+     */
+    public static Color color(String hex, Color schemeColor, int opacity) {
+        String normalized = normalizeColor(hex);
+        int rgb = normalized.isEmpty() ? schemeColor.getRGB() : Integer.parseInt(normalized, 16);
+        return new Color((rgb & 0xffffff) | (Math.clamp(opacity, 0, 255) << 24), true);
     }
 
-    private static String normalizeColor(String value, String fallback) {
-        if (value == null) return fallback;
+    public static String hex(Color color) {
+        return color == null ? "" : String.format(Locale.ROOT, "%06X", color.getRGB() & 0xffffff);
+    }
+
+    /** Six upper-case hex digits, or an empty string for "use the color scheme". */
+    static String normalizeColor(String value) {
+        if (value == null) return "";
         String hex = value.trim();
         if (hex.startsWith("#")) hex = hex.substring(1);
-        return hex.matches("[0-9a-fA-F]{6}") ? hex.toUpperCase(Locale.ROOT) : fallback;
+        return hex.matches("[0-9a-fA-F]{6}") ? hex.toUpperCase(Locale.ROOT) : "";
     }
 
     public static final class State {
@@ -64,7 +73,7 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
         public boolean autoWidth = true;
         public boolean lockWidth = false;
         public int width = 110;
-        public int pixelsPerLine = 2;
+        public int pixelsPerLine = 3;
         public int minLines = 0;
         public int maxLines = 1_000_000;
         public int debounceMs = 120;
@@ -84,8 +93,15 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
         public boolean emptyConsole = true;
         public boolean emptyUntyped = true;
         public boolean outOfRangeEmpty = false;
-        public String viewportColor = "A0A0A0";
-        public String viewportBorderColor = "808080";
+        // Empty colors follow the editor color scheme; RRGGBB values are custom picker choices.
+        public String viewportColor = "";
+        public String viewportBorderColor = "";
+        public String caretLineColor = "";
+        public String selectionColor = "";
+        public String markerLabelColor = "";
+        public String declarationLabelColor = "";
+        /** Strength of minimap text against the editor background, in percent. */
+        public int textIntensity = 70;
         public int viewportOpacity = 35;
         public int viewportBorderOpacity = 110;
         public int viewportBorderWidth = 1;
@@ -141,8 +157,13 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
             } catch (IllegalArgumentException exception) {
                 markerRegex = "";
             }
-            viewportColor = normalizeColor(viewportColor, "A0A0A0");
-            viewportBorderColor = normalizeColor(viewportBorderColor, "808080");
+            viewportColor = normalizeColor(viewportColor);
+            viewportBorderColor = normalizeColor(viewportBorderColor);
+            caretLineColor = normalizeColor(caretLineColor);
+            selectionColor = normalizeColor(selectionColor);
+            markerLabelColor = normalizeColor(markerLabelColor);
+            declarationLabelColor = normalizeColor(declarationLabelColor);
+            textIntensity = Math.clamp(textIntensity, 20, 100);
             width = Math.clamp(width, 40, 300);
             diffWidth = Math.clamp(diffWidth, 40, 300);
             previewWidth = Math.clamp(previewWidth, 40, 300);

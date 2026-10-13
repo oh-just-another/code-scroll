@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const {sampleIndices, viewport, scrollTarget, wheelPixels, bitmapSize, mount} =
+const {sampleIndices, viewport, scrollTarget, wheelPixels, bitmapSize, textRows, mount} =
     require("../../main/resources/dev/codescroll/markdown/rendered-minimap.js");
 
 test("bounded sampling spans the document and includes both endpoints", () => {
@@ -44,6 +44,14 @@ test("wheel normalizes pixel, line and page deltas with a bounded jump", () => {
     assert.equal(wheelPixels(2, 2, 500), 1000);
     assert.equal(wheelPixels(1e10, 0, 500), 1500);
     assert.equal(wheelPixels(NaN, 0, 500), 0);
+});
+
+test("text blocks become thin lines without exceeding the map space they occupy", () => {
+    assert.equal(textRows(22, 100), 1);
+    assert.equal(textRows(110, 100), 5);
+    assert.equal(textRows(110, 6), 2);
+    assert.equal(textRows(110, 1), 1);
+    assert.equal(textRows(100000, 10000), 64);
 });
 
 test("canvas allocation is independent of document length and caps DPR", () => {
@@ -211,8 +219,10 @@ test("settings disable cancels dragging; dispose removes every active listener, 
     b.win.__codeScrollMarkdownMinimap = minimap;
     b.tick(0);
     b.canvas.emit("pointerdown", {button: 0, pointerId: 7, clientY: 250});
+    assert.equal(b.root.style.paddingRight, "120px");
     minimap.setEnabled(false);
     assert.equal(b.canvas.hidden, true);
+    assert.equal(b.root.style.paddingRight, undefined);
     assert.equal(b.canvas.pointer, null);
     b.tick(250);
     const visits = b.visits;
@@ -222,9 +232,12 @@ test("settings disable cancels dragging; dispose removes every active listener, 
     minimap.setEnabled(true);
     assert.equal(b.canvas.hidden, false);
     assert.equal(b.frames.size, 1);
+    assert.equal(b.root.style.paddingRight, "120px");
     minimap.dispose();
     minimap.dispose();
     assert.equal(b.canvas.parentNode, null);
+    // The reserved gutter is released, restoring the page's own padding.
+    assert.equal(b.root.style.paddingRight, undefined);
     assert.equal(b.frames.size + b.timers.size + b.intervals.size, 0);
     assert.ok(b.observers.every(observer => !observer.connected));
     for (const target of [b.win, b.doc, b.canvas, b.media, b.doc.fonts]) assert.equal(target.listeners.length, 0);

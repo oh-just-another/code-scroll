@@ -128,6 +128,17 @@ class RasterRendererTest {
         for (int x = 4; x <= 6; x++) assertPixel(clean, x, 0, 0xffffff);
     }
 
+    @Test
+    void intensityBlendsTextTowardsTheBackground() {
+        int[] one = {0};
+        BufferedImage half = RasterRenderer.render("W", 40, 1, one, new int[]{1}, one, 0xffffff, 0x000000,
+                List.of(), false, 50, null);
+        assertPixel(half, 4, 0, RasterRenderer.blend(0xffffff, 0, 128));
+        BufferedImage full = RasterRenderer.render("W", 40, 1, one, new int[]{1}, one, 0xffffff, 0x000000,
+                List.of(), false, 100, null);
+        assertPixel(full, 4, 0, 0xffffff);
+    }
+
     private static BufferedImage render(CharSequence text, int width, int height, int[] starts, int[] ends,
                                          int[] rows, List<RasterRenderer.Token> tokens, Runnable cancel) {
         return RasterRenderer.render(text, width, height, starts, ends, rows, FG, BG, tokens, cancel);
