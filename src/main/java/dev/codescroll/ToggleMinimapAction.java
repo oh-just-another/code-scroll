@@ -15,6 +15,8 @@ public final class ToggleMinimapAction extends DumbAwareAction {
     public void actionPerformed(@NotNull AnActionEvent event) {
         CodeScrollSettings.State state = CodeScrollSettings.getInstance().getState();
         state.enabled = !state.enabled;
+        // Turning minimaps on again also restores editors hidden one by one.
+        if (state.enabled) CodeScrollManager.getInstance().clearHidden();
         CodeScrollManager.getInstance().refreshAll();
     }
 

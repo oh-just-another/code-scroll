@@ -19,6 +19,17 @@ public final class RasterRenderer {
                                        int[] starts, int[] ends, int[] rows,
                                        int foreground, int background, List<Token> tokens,
                                        Runnable checkCanceled) {
+        return render(text, width, height, starts, ends, rows, foreground, background, tokens, false, checkCanceled);
+    }
+
+    /**
+     * @param accurate blend each cell by the approximate ink coverage of its glyph instead of drawing a
+     *                 solid stroke, so punctuation and lower-case text read lighter than capitals.
+     */
+    public static BufferedImage render(CharSequence text, int width, int height,
+                                       int[] starts, int[] ends, int[] rows,
+                                       int foreground, int background, List<Token> tokens,
+                                       boolean accurate, Runnable checkCanceled) {
         if (text == null || starts == null || ends == null || rows == null || tokens == null
                 || starts.length != ends.length || starts.length != rows.length) {
             throw new IllegalArgumentException("Text, tokens and matching sample arrays are required");
@@ -74,7 +85,8 @@ public final class RasterRenderer {
                     }
                     int rgb = high >= 0 && offset < colors[high].end()
                             ? colors[high].rgb() : foreground;
-                    pixels[row * width + 4 + column] = rgb & 0xffffff;
+                    pixels[row * width + 4 + column] = accurate
+                            ? blend(rgb, background, coverage(c)) : rgb & 0xffffff;
                 }
                 // A supplementary code point occupies one cell, not two surrogate cells.
                 if (Character.isHighSurrogate(c) && offset + 1 < limit
@@ -83,5 +95,20 @@ public final class RasterRenderer {
             }
         }
         return image;
+    }
+
+    /** Approximate ink coverage of a glyph, in 1/256 units. */
+    static int coverage(char c) {
+        if (".,'`:;-_\"~^".indexOf(c) >= 0) return 90;
+        if (Character.isUpperCase(c) || Character.isDigit(c) || "#@%&$WM".indexOf(c) >= 0) return 256;
+        if (Character.isLowerCase(c)) return 180;
+        return 150;
+    }
+
+    static int blend(int rgb, int background, int coverage) {
+        int r = (((rgb >> 16) & 0xff) * coverage + ((background >> 16) & 0xff) * (256 - coverage)) >> 8;
+        int g = (((rgb >> 8) & 0xff) * coverage + ((background >> 8) & 0xff) * (256 - coverage)) >> 8;
+        int b = ((rgb & 0xff) * coverage + (background & 0xff) * (256 - coverage)) >> 8;
+        return (r << 16) | (g << 8) | b;
     }
 }

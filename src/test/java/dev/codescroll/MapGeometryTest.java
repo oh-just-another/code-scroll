@@ -30,6 +30,20 @@ class MapGeometryTest {
     }
 
     @Test
+    void fillStretchesShortDocumentsWithinTheFillCap() {
+        MapGeometry filled = MapGeometry.create(10, 100, true, true, 2, 0, 10);
+        assertEquals(10, filled.scale());
+        assertEquals(100, filled.y(10));
+        assertEquals(9, filled.line(99));
+        MapGeometry capped = MapGeometry.create(2, 100, true, true, 2, 0, 2);
+        assertEquals(MapGeometry.MAX_FILL_SCALE, capped.scale());
+        MapGeometry longDocument = MapGeometry.create(1000, 100, true, true, 2, 0, 10);
+        assertEquals(0.1, longDocument.scale());
+        // Fill only changes Fit; proportional mode keeps pixels-per-line.
+        assertEquals(2, MapGeometry.create(10, 100, false, true, 2, 0, 10).scale());
+    }
+
+    @Test
     void proportionalModeCentersViewportAndRoundTrips() {
         MapGeometry geometry = MapGeometry.create(1000, 100, false, 2, 400, 450);
         assertEquals(2, geometry.scale());

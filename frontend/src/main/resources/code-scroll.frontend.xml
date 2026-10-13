@@ -9,6 +9,10 @@
                                  displayName="Code Scroll"
                                  instance="dev.codescroll.CodeScrollConfigurable"/>
     </extensions>
+    <applicationListeners>
+        <listener class="dev.codescroll.CodeScrollPluginListener"
+                  topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    </applicationListeners>
     <actions>
         <action id="CodeScroll.Toggle" class="dev.codescroll.ToggleMinimapAction"
                 text="Toggle Code Scroll Minimap" description="Show or hide code minimaps">

@@ -111,6 +111,23 @@ class RasterRendererTest {
         assertEquals(3, checks.get());
     }
 
+    @Test
+    void accurateStyleBlendsByGlyphCoverageWhileCleanDrawsSolidStrokes() {
+        String text = "W.a";
+        int[] starts = {0};
+        int[] ends = {3};
+        int[] rows = {0};
+        BufferedImage accurate = RasterRenderer.render(text, 40, 1, starts, ends, rows, 0xffffff, 0x000000,
+                List.of(), true, null);
+        assertPixel(accurate, 4, 0, 0xffffff);
+        assertPixel(accurate, 5, 0, RasterRenderer.blend(0xffffff, 0, RasterRenderer.coverage('.')));
+        assertPixel(accurate, 6, 0, RasterRenderer.blend(0xffffff, 0, RasterRenderer.coverage('a')));
+        assertTrue((accurate.getRGB(5, 0) & 0xff) < (accurate.getRGB(6, 0) & 0xff));
+        BufferedImage clean = RasterRenderer.render(text, 40, 1, starts, ends, rows, 0xffffff, 0x000000,
+                List.of(), false, null);
+        for (int x = 4; x <= 6; x++) assertPixel(clean, x, 0, 0xffffff);
+    }
+
     private static BufferedImage render(CharSequence text, int width, int height, int[] starts, int[] ends,
                                          int[] rows, List<RasterRenderer.Token> tokens, Runnable cancel) {
         return RasterRenderer.render(text, width, height, starts, ends, rows, FG, BG, tokens, cancel);

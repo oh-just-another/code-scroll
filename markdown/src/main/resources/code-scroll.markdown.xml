@@ -1,0 +1,9 @@
+<idea-plugin>
+    <dependencies>
+        <module name="code-scroll.frontend"/>
+        <plugin id="org.intellij.plugins.markdown"/>
+    </dependencies>
+    <extensions defaultExtensionNs="org.intellij.markdown">
+        <browserPreviewExtensionProvider implementation="dev.codescroll.markdown.RenderedMarkdownMinimapProvider"/>
+    </extensions>
+</idea-plugin>

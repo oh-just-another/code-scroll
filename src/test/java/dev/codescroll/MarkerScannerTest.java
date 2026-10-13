@@ -111,4 +111,126 @@ class MarkerScannerTest {
         })));
         assertEquals(3, checks.get());
     }
+
+    @Test
+    void methodNameFiltersAreGlobsSeparatedByCommasOrNewlinesAndDoNotFilterClasses() {
+        String text = "class Service {}\nfun loadOne() {}\nfun loadTwo() {}\n"
+                + "fun parse() {}\nfun saveA() {}\nfun saveAB() {}\n";
+        assertEquals(List.of("Service", "loadOne", "loadTwo", "parse", "saveA"),
+                MarkerScanner.scan(text, "", true, "load*,parse\nsave?", "", "", 100, null)
+                        .stream().map(MarkerScanner.Marker::label).toList());
+        assertEquals(List.of("Service"), MarkerScanner.scan(text, "", true, "", "", "", 100, null)
+                .stream().map(MarkerScanner.Marker::label).toList());
+        assertTrue(MarkerScanner.scan(text, "", false, "*", "", "", 100, null).isEmpty());
+        assertEquals(MarkerScanner.scan(text, "", true, 100, null),
+                MarkerScanner.scan(text, "", true, null, null, null, 100, null));
+    }
+
+    @Test
+    void annotationFiltersTrackPrecedingAndInlineJavaAndKotlinAnnotations() {
+        String text = "@org.example.Test\n// a comment\npublic void loadTest() {}\n"
+                + "public void loadPlain() {}\n@JvmStatic @Tag(\"fast\") fun loadKotlin() {}\n"
+                + "@Ignored\nprivate int field = 1;\nfun loadAfterField() {}\nclass Service {}\n";
+        assertEquals(List.of("loadTest", "loadKotlin", "Service"),
+                MarkerScanner.scan(text, "", true, "load*", "@Test\nJvm*,Other", "", 100, null)
+                        .stream().map(MarkerScanner.Marker::label).toList());
+        assertEquals(List.of("loadTest", "Service"),
+                MarkerScanner.scan(text, "", true, "*", "org.example.Test", "", 100, null)
+                        .stream().map(MarkerScanner.Marker::label).toList());
+        assertEquals(List.of("Service"),
+                MarkerScanner.scan(text, "", true, "missing", "Test", "", 100, null)
+                        .stream().map(MarkerScanner.Marker::label).toList());
+        assertTrue(MarkerScanner.scan("@Test\n" + "\n".repeat(9) + "fun stale() {}", "", true,
+                "*", "Test", "", 100, null).isEmpty());
+    }
+
+    @Test
+    void kotlinExtensionsAndGenericsAndMultilineJavaSignaturesKeepExactOffsets() {
+        String text = "fun String.formatValue() = this\r\n"
+                + "inline fun <T, R> List<T>.mapValues(action: (T) -> R) {}\n"
+                + "fun <K, V> Map<K, V>.copyEntries() {}\nfun String?.safeValue() {}\n"
+                + "@Test\r\npublic static <T> java.util.List<T>\r\n"
+                + "  collect(\r\n    T first,\r\n    T second\r\n  ) throws Exception\r\n  {\n}\n";
+        List<MarkerScanner.Marker> markers = MarkerScanner.scan(text, "", true, "*", "", "", 100, null);
+        assertEquals(List.of("formatValue", "mapValues", "copyEntries", "safeValue", "collect"),
+                markers.stream().map(MarkerScanner.Marker::label).toList());
+        for (MarkerScanner.Marker marker : markers) {
+            assertEquals(text.indexOf(marker.label()), marker.offset());
+            assertTrue(marker.declaration());
+        }
+        assertEquals(List.of("collect"), MarkerScanner.scan(text, "", true,
+                "collect", "Test", "", 100, null).stream().map(MarkerScanner.Marker::label).toList());
+        assertTrue(MarkerScanner.scan("public void tooLong(\n" + "    int x,\n".repeat(10) + ") {", "", true,
+                "*", "", "", 100, null).isEmpty());
+    }
+
+    @Test
+    void customRegexMatchesOnlyCommentsAndDeduplicatesLiteralMarkers() {
+        String text = "String note = \"NOTE-12\"; NOTE_34(); // NOTE-56: fix\n"
+                + "/* NOTE-78 section */\n#NOTE-90 later\n"
+                + "```\n// NOTE-99 hidden\n```\n";
+        List<MarkerScanner.Marker> markers = MarkerScanner.scan(text, "", false,
+                "*", "", "NOTE-[0-9]+", 100, null);
+        assertEquals(List.of("NOTE-56: fix", "NOTE-78 section */", "NOTE-90 later"),
+                markers.stream().map(MarkerScanner.Marker::label).toList());
+        assertEquals(text.indexOf("NOTE-56"), markers.get(0).offset());
+        assertEquals(1, MarkerScanner.scan("// TODO fix", "TODO", false,
+                "*", "", "TODO", 100, null).size());
+        assertTrue(MarkerScanner.scan("String a = \"NOTE\";", "", false,
+                "*", "", ".+", 100, null).isEmpty());
+        assertEquals("// NOTE", MarkerScanner.scan("call(); // NOTE", "", false,
+                "*", "", "^// NOTE$", 100, null).get(0).label());
+        assertTrue(MarkerScanner.scan("// anything", "", false, "*", "", "^", 100, null).isEmpty());
+        assertEquals(2, MarkerScanner.scan("// NOTE\n".repeat(4), "", false,
+                "*", "", "NOTE", 2, null).size());
+    }
+
+    @Test
+    void customRegexRejectsUnsafeAndUnsupportedConstructsBeforeScanning() {
+        for (String expression : List.of("(a+)+$", "a+a+$", "(?=TODO)", "(TODO)", "TODO|FIXME",
+                "\\1", "\\k<name>", "a{513}", "[", "a".repeat(257))) {
+            assertThrows(IllegalArgumentException.class, () -> MarkerScanner.compileMarkerRegex(expression), expression);
+            assertThrows(IllegalArgumentException.class, () -> MarkerScanner.scan("// anything", "", false,
+                    "*", "", expression, 100, null), expression);
+        }
+        for (String expression : List.of("NOTE-[0-9]+", "TODO:.*", "\\bTODO\\b", "a{1,512}",
+                "a*?", "a++", "[()|]+", "\\(TODO\\)")) {
+            assertNotNull(MarkerScanner.compileMarkerRegex(expression), expression);
+        }
+        assertNull(MarkerScanner.compileMarkerRegex(""));
+        assertNull(MarkerScanner.compileMarkerRegex(null));
+    }
+
+    @Test
+    void cancellationDuringVeryLongLinesPropagatesAndRegexInspectionIsBounded() {
+        AtomicInteger checks = new AtomicInteger();
+        RuntimeException canceled = new RuntimeException("canceled");
+        assertSame(canceled, assertThrows(RuntimeException.class, () -> MarkerScanner.scan(
+                "// " + "x".repeat(100_000), "", false, "*", "", "x+$", 10, () -> {
+                    if (checks.incrementAndGet() == 4) throw canceled;
+                })));
+        assertEquals(4, checks.get());
+        assertTrue(MarkerScanner.scan("// " + "x".repeat(512) + " NOTE", "", false,
+                "*", "", "NOTE", 100, null).isEmpty());
+        assertEquals(1, MarkerScanner.scan("// " + "x".repeat(511), "", false,
+                "*", "", "x+$", 100, null).size());
+    }
+
+    @Test
+    void scansMarkersNearTheEndOfSmallFilesAndKeepsWildcardWorkBounded() {
+        String text = "int value = 1;\n".repeat(50_000) + "\n// NOTE near end\nfun finalMethod() {}\n";
+        assertEquals(List.of("NOTE near end", "finalMethod"), MarkerScanner.scan(text, "", true,
+                "final*", "", "NOTE", 100, null).stream().map(MarkerScanner.Marker::label).toList());
+        assertTrue(MarkerScanner.scan("fun " + "a".repeat(100) + "() {}", "", true,
+                "*a".repeat(100) + "b", "", "", 100, null).isEmpty());
+    }
+
+    @Test
+    void hashCommentsAndFencesAreOnlyMarkdownSyntaxInMarkdownFiles() {
+        String text = "# compute totals\n```\ndef run():\n    pass  # TODO tidy\n";
+        assertEquals(List.of("run", "TODO tidy"), MarkerScanner.scan(text, "TODO", true, "*", "", "",
+                false, 100, null).stream().map(MarkerScanner.Marker::label).toList());
+        assertEquals(List.of("compute totals"), MarkerScanner.scan(text, "TODO", true, "*", "", "",
+                true, 100, null).stream().map(MarkerScanner.Marker::label).toList());
+    }
 }

@@ -1,2 +1,2 @@
 rootProject.name = "code-scroll"
-include(":frontend")
+include(":frontend", ":markdown")

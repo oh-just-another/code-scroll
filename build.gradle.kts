@@ -15,6 +15,7 @@ repositories {
 
 dependencies {
     implementation(project(":frontend"))
+    implementation(project(":markdown"))
     intellijPlatform {
         val localPath = providers.gradleProperty("localIdePath").orNull
         if (localPath != null) local(localPath)
@@ -43,4 +44,9 @@ intellijPlatform {
             else current()
         }
     }
+}
+
+// Optional: ./gradlew runIde -PopenPath=/path/to/project opens that path in the sandbox IDE.
+tasks.named<org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask>("runIde") {
+    providers.gradleProperty("openPath").orNull?.let { args(it) }
 }

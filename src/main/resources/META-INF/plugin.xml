@@ -9,5 +9,7 @@
     ]]></description>
     <content>
         <module name="code-scroll.frontend" loading="required"/>
+        <!-- Loaded only where the bundled Markdown plugin is present and enabled. -->
+        <module name="code-scroll.markdown" loading="optional"/>
     </content>
 </idea-plugin>
