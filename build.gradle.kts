@@ -1,0 +1,46 @@
+import org.jetbrains.intellij.platform.gradle.tasks.aware.SplitModeAware
+
+plugins {
+    java
+    id("org.jetbrains.intellij.platform") version "2.19.0"
+}
+
+group = "dev.codescroll"
+version = "0.1.0"
+
+repositories {
+    mavenCentral()
+    intellijPlatform { defaultRepositories() }
+}
+
+dependencies {
+    implementation(project(":frontend"))
+    intellijPlatform {
+        val localPath = providers.gradleProperty("localIdePath").orNull
+        if (localPath != null) local(localPath)
+        else intellijIdea(providers.gradleProperty("platformVersion").getOrElse("2025.3.6.1"))
+        pluginVerifier()
+    }
+}
+
+sourceSets.main { java.setSrcDirs(emptyList<String>()) }
+java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
+tasks.withType<JavaCompile>().configureEach { options.release = 21 }
+tasks.processResources { from("LICENSE") { into("META-INF") } }
+
+intellijPlatform {
+    splitMode = providers.gradleProperty("splitMode").map(String::toBoolean).getOrElse(false)
+    pluginInstallationTarget = SplitModeAware.PluginInstallationTarget.FRONTEND
+    pluginConfiguration {
+        name = "Code Scroll"
+        ideaVersion { sinceBuild = "253"; untilBuild = provider { null } }
+    }
+    buildSearchableOptions = false
+    pluginVerification {
+        ides {
+            val paths = providers.gradleProperty("verifyIdePaths").orNull
+            if (paths != null) paths.split('|').forEach { local(file(it)) }
+            else current()
+        }
+    }
+}

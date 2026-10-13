@@ -1,0 +1,13 @@
+<idea-plugin>
+    <id>dev.codescroll</id>
+    <name>Code Scroll</name>
+    <vendor>Rustam Garifulin</vendor>
+    <description><![CDATA[
+        Interactive, syntax-colored code minimap with bounded software rendering,
+        viewport dragging, code preview, declaration markers and large-file sampling.
+        Supports main, diff, preview and console editors.
+    ]]></description>
+    <content>
+        <module name="code-scroll.frontend" loading="required"/>
+    </content>
+</idea-plugin>

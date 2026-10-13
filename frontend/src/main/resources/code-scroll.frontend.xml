@@ -1,0 +1,18 @@
+<idea-plugin>
+    <dependencies>
+        <module name="intellij.platform.frontend"/>
+    </dependencies>
+    <extensions defaultExtensionNs="com.intellij">
+        <editorFactoryListener implementation="dev.codescroll.CodeScrollEditorListener"/>
+        <postStartupActivity implementation="dev.codescroll.CodeScrollStartup"/>
+        <applicationConfigurable parentId="editor" id="dev.codescroll.settings"
+                                 displayName="Code Scroll"
+                                 instance="dev.codescroll.CodeScrollConfigurable"/>
+    </extensions>
+    <actions>
+        <action id="CodeScroll.Toggle" class="dev.codescroll.ToggleMinimapAction"
+                text="Toggle Code Scroll Minimap" description="Show or hide code minimaps">
+            <add-to-group group-id="ViewMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
