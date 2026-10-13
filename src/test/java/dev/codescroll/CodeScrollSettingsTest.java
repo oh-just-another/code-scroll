@@ -13,7 +13,7 @@ class CodeScrollSettingsTest {
     @Test
     void defaultsRetainLegacyFieldsAndInitializeNewOptions() {
         CodeScrollSettings.State state = new CodeScrollSettings.State();
-        assertTrue(state.fit);
+        assertFalse(state.fit);
         assertEquals(110, state.width);
         assertFalse(state.fill);
         assertEquals(CodeScrollSettings.RenderStyle.CLEAN, state.renderStyle);
@@ -36,16 +36,18 @@ class CodeScrollSettingsTest {
         assertEquals("", state.markerLabelColor);
         assertEquals("", state.declarationLabelColor);
         assertEquals(70, state.textIntensity);
-        assertEquals(35, state.viewportOpacity);
+        assertEquals(38, state.viewportOpacity);
         assertEquals(110, state.viewportBorderOpacity);
-        assertEquals(1, state.viewportBorderWidth);
+        assertEquals(0, state.viewportBorderWidth);
         assertTrue(state.showBookmarks);
         assertTrue(state.showVcs);
         assertTrue(state.showDiagnostics);
         assertTrue(state.showSearch);
+        assertTrue(state.showErrors);
+        assertTrue(state.showWarnings);
         assertFalse(state.fullLineDiagnostics);
         assertFalse(state.fullLineMarkup);
-        assertEquals("*", state.methodNames);
+        assertEquals("", state.methodNames);
         assertEquals("", state.methodAnnotations);
         assertEquals("", state.markerRegex);
         assertEquals(10, state.markerFontSize);
@@ -98,7 +100,7 @@ class CodeScrollSettingsTest {
         assertEquals(CodeScrollSettings.ClickTiming.DOWN, state.clickTiming);
         assertEquals("", state.excludedExtensions);
         assertEquals("", state.markerWords);
-        assertEquals("*", state.methodNames);
+        assertEquals("", state.methodNames);
         assertEquals("", state.methodAnnotations);
         assertEquals("", state.markerRegex);
         assertEquals("ABC012", state.viewportColor);

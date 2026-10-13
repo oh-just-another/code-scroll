@@ -6,6 +6,9 @@
     const MAX_BLOCKS = 1280;
     const MAX_HEADINGS = 256;
     const WIDTH = 96;
+    const MAP_SCALE = 0.1;
+    // Frame fill opacity at rest, while hovered and while dragged.
+    const FRAME_ALPHA = [0.15, 0.25, 0.35];
     // Space reserved on the right of the page so the overlay never covers rendered content.
     const GUTTER = WIDTH + 24;
     const MAX_HEIGHT = 1600;
@@ -26,6 +29,14 @@
         const size = Math.min(height, Math.max(8, visible / total * height));
         const range = Math.max(0, total - visible);
         return {top: range ? clamp(scrollTop, 0, range) / range * (height - size) : 0, height: size};
+    }
+
+    /**
+     * Map height for a page: a fixed scale (about 2 map px per text line) while the page fits, and the
+     * whole available height only for pages too long for that. A short page gets a short map.
+     */
+    function mapHeight(total, available) {
+        return Math.max(1, Math.min(available, Math.ceil(Math.max(1, total) * MAP_SCALE)));
     }
 
     function scrollTarget(y, grab, visible, total, height) {
@@ -74,7 +85,10 @@
         let timer = 0;
         let lastSample = -Infinity;
         let drag = null;
+        let hovered = false;
         let independentUntil = 0;
+        // When true (the default), navigating with the map also scrolls the source editor.
+        let syncSource = true;
         let observedBody = null;
         const listeners = [];
         const resize = new win.ResizeObserver(() => invalidate());
@@ -135,7 +149,7 @@
                 dirty = true;
             }
             const {top, visible, total} = metrics();
-            const height = Math.max(1, win.innerHeight - 24);
+            const height = mapHeight(total, Math.max(1, win.innerHeight - 24));
             const size = bitmapSize(height, win.devicePixelRatio);
             if (canvas.width !== size.width || canvas.height !== size.height) {
                 canvas.width = size.width;
@@ -178,13 +192,12 @@
                     ctx.fillRect(x, y + row * step, last ? Math.max(1, w * 0.6) : w, thickness);
                 }
             }
-            const box = viewport(top, visible, total, height);
-            ctx.globalAlpha = visible >= total ? 0 : 0.07;
-            ctx.fillRect(0, box.top, WIDTH, box.height);
-            ctx.globalAlpha = visible >= total ? 0.12 : 0.3;
-            ctx.strokeStyle = foreground;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(0.5, box.top + 0.5, WIDTH - 1, Math.max(0, box.height - 1));
+            // No frame when the whole page is visible: there is nothing to scroll to.
+            if (visible < total) {
+                const box = viewport(top, visible, total, height);
+                ctx.globalAlpha = FRAME_ALPHA[drag ? 2 : hovered ? 1 : 0];
+                ctx.fillRect(0, box.top, WIDTH, box.height);
+            }
             ctx.globalAlpha = 1;
             canvas.setAttribute("aria-valuemin", "0");
             canvas.setAttribute("aria-valuemax", String(Math.max(0, total - visible)));
@@ -193,8 +206,8 @@
 
         function navigate(top) {
             const m = metrics();
-            // Only our navigation bypasses Markdown's document scroll -> source notification.
-            independentUntil = win.performance.now() + 200;
+            // Unless source sync is on, our navigation bypasses Markdown's preview -> source notification.
+            independentUntil = syncSource ? 0 : win.performance.now() + 200;
             win.scrollTo({left: m.root.scrollLeft, top: clamp(top, 0, Math.max(0, m.total - m.visible)), behavior: "instant"});
             schedule();
         }
@@ -221,10 +234,19 @@
             canvas.focus({preventScroll: true});
             move(event);
         });
-        listen(canvas, "pointermove", move);
+        listen(canvas, "pointermove", event => {
+            const m = metrics();
+            const box = viewport(m.top, m.visible, m.total, canvas.getBoundingClientRect().height);
+            const y = point(event);
+            const over = y >= box.top && y <= box.top + box.height;
+            if (over !== hovered) { hovered = over; schedule(); }
+            move(event);
+        });
+        listen(canvas, "pointerleave", () => { if (hovered) { hovered = false; schedule(); } });
         const endDrag = event => {
             if (!drag || drag.id !== event.pointerId) return;
             drag = null;
+            schedule();
             if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
         };
         listen(canvas, "pointerup", endDrag);
@@ -286,7 +308,10 @@
             if (win.__codeScrollMarkdownMinimap === api) delete win.__codeScrollMarkdownMinimap;
         }
 
-        const api = {extensionId, dispose, setEnabled(value) {
+        const api = {extensionId, dispose, setSync(value) {
+            syncSource = !!value;
+            if (syncSource) independentUntil = 0;
+        }, setEnabled(value) {
             if (enabled === value) return;
             enabled = value;
             canvas.hidden = !value;
@@ -304,7 +329,7 @@
     }
 
     if (typeof module === "object" && module.exports) {
-        module.exports = {sampleIndices, viewport, scrollTarget, wheelPixels, bitmapSize, textRows, mount};
+        module.exports = {sampleIndices, viewport, mapHeight, scrollTarget, wheelPixels, bitmapSize, textRows, mount};
         return;
     }
     const win = window;
@@ -316,10 +341,13 @@
         pipe.subscribe(CONTROL, data => {
             const current = win.__codeScrollMarkdownMinimap;
             if (!current) return;
-            const [id, command] = data.split(":");
+            const [id, command, sync] = data.split(":");
             if (id !== current.extensionId) return;
             if (command === "dispose") current.dispose();
-            else if (command === "on" || command === "off") current.setEnabled(command === "on");
+            else if (command === "on" || command === "off") {
+                current.setEnabled(command === "on");
+                if (sync === "sync" || sync === "nosync") current.setSync(sync === "sync");
+            }
         });
     }
     win.__codeScrollMarkdownMinimap = mount(win, win.__codeScrollMarkdownExtensionId);

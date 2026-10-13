@@ -64,8 +64,9 @@ class RasterRendererTest {
         };
         BufferedImage image = render(huge, 10000, 1, new int[]{0}, new int[]{Integer.MAX_VALUE}, new int[]{0}, List.of(), null);
         assertTrue(reads.get() <= RasterRenderer.MAX_COLUMNS);
-        assertPixel(image, 293, 0, FG);
-        assertPixel(image, 294, 0, BG);
+        // At most MAX_COLUMNS characters are read and drawn, however wide the raster.
+        assertPixel(image, RasterRenderer.INDENT + RasterRenderer.MAX_COLUMNS - 1, 0, FG);
+        assertPixel(image, RasterRenderer.INDENT + RasterRenderer.MAX_COLUMNS, 0, BG);
         BufferedImage spaces = render(" ".repeat(512) + "x", 300, 1,
                 new int[]{0}, new int[]{513}, new int[]{0}, List.of(), null);
         assertPixel(spaces, 4, 0, BG);
@@ -119,13 +120,67 @@ class RasterRendererTest {
         int[] rows = {0};
         BufferedImage accurate = RasterRenderer.render(text, 40, 1, starts, ends, rows, 0xffffff, 0x000000,
                 List.of(), true, null);
-        assertPixel(accurate, 4, 0, 0xffffff);
+        assertPixel(accurate, 4, 0, RasterRenderer.blend(0xffffff, 0, RasterRenderer.coverage('W')));
         assertPixel(accurate, 5, 0, RasterRenderer.blend(0xffffff, 0, RasterRenderer.coverage('.')));
         assertPixel(accurate, 6, 0, RasterRenderer.blend(0xffffff, 0, RasterRenderer.coverage('a')));
         assertTrue((accurate.getRGB(5, 0) & 0xff) < (accurate.getRGB(6, 0) & 0xff));
         BufferedImage clean = RasterRenderer.render(text, 40, 1, starts, ends, rows, 0xffffff, 0x000000,
                 List.of(), false, null);
         for (int x = 4; x <= 6; x++) assertPixel(clean, x, 0, 0xffffff);
+    }
+
+    @Test
+    void cleanKeepsALightFirstRowAsSpacingBetweenLines() {
+        // A line drawn over four rows: the first row is the gap, the rest are solid.
+        int[] starts = {0, 0, 0, 0};
+        int[] ends = {1, 1, 1, 1};
+        int[] rows = {0, 1, 2, 3};
+        float[] phases = {0.125f, 0.375f, 0.625f, 0.875f};
+        BufferedImage image = RasterRenderer.render("x", 40, 4, starts, ends, rows, phases, 4, 1, 4,
+                0xffffff, 0x000000, List.of(), false, 100, null);
+        assertTrue((image.getRGB(4, 0) & 0xff) < 64);
+        for (int y = 1; y < 4; y++) assertPixel(image, 4, y, 0xffffff);
+        // Two rows per line are too few to spare one for spacing.
+        assertEquals(256, RasterRenderer.weight('x', 0.25f, 2, false));
+    }
+
+    @Test
+    void accurateShapesGlyphsByTheirUpperAndLowerInk() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(RasterRenderer.MEASURED, "no fonts to measure glyphs");
+        // Ascenders carry ink in the upper half; descenders in the lower half.
+        assertTrue(RasterRenderer.weight('l', 0.3f, 4, true) > RasterRenderer.weight('o', 0.3f, 4, true));
+        assertTrue(RasterRenderer.weight('g', 0.8f, 4, true) > RasterRenderer.weight('l', 0.8f, 4, true));
+        assertTrue(RasterRenderer.weight('.', 0.3f, 4, true) < RasterRenderer.weight('M', 0.3f, 4, true));
+    }
+
+    @Test
+    void hiDpiCellsAreWiderThanOnePixel() {
+        BufferedImage image = RasterRenderer.render("ab", 80, 1, new int[]{0}, new int[]{2}, new int[]{0}, null,
+                1, 2, 8, 0xffffff, 0x000000, List.of(), false, 100, null);
+        for (int x = 8; x < 12; x++) assertPixel(image, x, 0, 0xffffff);
+        assertPixel(image, 12, 0, 0x000000);
+        assertPixel(image, 7, 0, 0x000000);
+    }
+
+    @Test
+    void antialiasingBlendsPartiallyCoveringLinesByCoverage() {
+        // Line "x" covers 60% of the row, the empty line the rest: the pixel is 60% ink, not all or nothing.
+        String text = "x\n \n";
+        BufferedImage image = RasterRenderer.render(text, 40, 1, new int[]{0, 2}, new int[]{1, 3}, new int[]{0, 0},
+                null, new float[]{0.6f, 0.4f}, 1, 1, 4, 0xffffff, 0x000000, List.of(), false, 100, null);
+        assertEquals(RasterRenderer.blend(0xffffff, 0, Math.round(0.6f * 256)) & 0xff, image.getRGB(4, 0) & 0xff, 1);
+    }
+
+    @Test
+    void antialiasingAveragesColorsOfLinesSharingARow() {
+        String text = "a\nb\n";
+        List<RasterRenderer.Token> tokens = List.of(new RasterRenderer.Token(0, 1, 0xff0000),
+                new RasterRenderer.Token(2, 3, 0x0000ff));
+        BufferedImage image = RasterRenderer.render(text, 40, 1, new int[]{0, 2}, new int[]{1, 3}, new int[]{0, 0},
+                null, new float[]{0.5f, 0.5f}, 0.5, 1, 4, 0xffffff, 0x000000, tokens, false, 100, null);
+        int rgb = image.getRGB(4, 0) & 0xffffff;
+        // Both lines contribute: neither pure red nor pure blue.
+        assertTrue(((rgb >> 16) & 0xff) > 100 && (rgb & 0xff) > 100, Integer.toHexString(rgb));
     }
 
     @Test

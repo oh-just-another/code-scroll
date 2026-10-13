@@ -18,6 +18,14 @@ public final class MarkupClassifier {
     private MarkupClassifier() {}
 
     /**
+     * Error highlighters use HighlighterLayer.ERROR (5000); warnings use WARNING (4000) and
+     * WEAK_WARNING (3750). ELEMENT_UNDER_CARET (5500) and above are not errors.
+     */
+    public static boolean isError(int layer) {
+        return layer >= 5000 && layer < 5500;
+    }
+
+    /**
      * @param attributesKey    external name of the highlighter's text attributes key, or null
      * @param thinStripe       whether the highlighter asks for a thin error-stripe mark (VCS ranges do)
      * @param lineMarkerClass  class name of the gutter line-marker renderer, or null

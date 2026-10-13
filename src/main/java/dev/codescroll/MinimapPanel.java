@@ -15,6 +15,8 @@ import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
+import com.intellij.openapi.fileTypes.SyntaxHighlighter;
+import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory;
 import com.intellij.openapi.editor.event.CaretEvent;
 import com.intellij.openapi.editor.event.CaretListener;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -54,12 +56,17 @@ public final class MinimapPanel extends JPanel implements Disposable {
     private static final int COLLAPSED_WIDTH = 8;
     private static final int RESIZE_EDGE = 5;
     private static final int QUICK_HIDE_SIZE = 12;
-    private static final int MIN_VIEWPORT_HEIGHT = 8;
     /** Bounds syntax-coloring work per frame; later samples fall back to the default foreground. */
     private static final int MAX_TOKENS = 200_000;
+    /** Lines sampled per raster row when several share it; their coverage is averaged (antialiasing). */
+    private static final int MAX_LINES_PER_ROW = 8;
 
     private record Label(int line, String text, boolean declaration) {}
-    private record Frame(BufferedImage image, MapGeometry geometry, List<Label> labels, long stamp) {}
+    /** {@code geometry} is in panel (logical) pixels; the image has {@code rasterScale} device pixels per one. */
+    private record Frame(BufferedImage image, MapGeometry geometry, double rasterScale, List<Label> labels, long stamp,
+                         Overview overview) {}
+    /** Whole-document raster; {@code rowsPerLine} is in its own device rows. */
+    private record Overview(BufferedImage image, double rowsPerLine, double rasterScale, int width, long stamp) {}
 
     private final Editor editor;
     private final PreviewPopup preview;
@@ -68,7 +75,14 @@ public final class MinimapPanel extends JPanel implements Disposable {
     private final Timer revealTimer;
     private final Timer collapseTimer;
     private final Timer previewTimer;
+    private final Timer scrollRender;
     private Future<?> renderTask;
+    /** A scroll needed a new raster while one was still being rendered; render again when it lands. */
+    private boolean renderAgain;
+    /** Labels depend only on text and label settings, not on the scroll position: reuse them. */
+    private List<Label> cachedLabels;
+    private long cachedLabelStamp = -1;
+    private String cachedLabelKey;
     private Frame frame;
     private long generation;
     private boolean disposed;
@@ -78,9 +92,9 @@ public final class MinimapPanel extends JPanel implements Disposable {
     private boolean mouseInside;
     private boolean revealed;
     private int lastMouseY;
-    private double dragOffset;
-    private MapGeometry dragGeometry;
-    private int dragPixelOffset;
+    private boolean hoverFrame;
+    private int dragStartY;
+    private double dragStartFrameTop;
     private int initialX;
     private int initialWidth;
     private int oldScrollbarPolicy = -1;
@@ -101,12 +115,14 @@ public final class MinimapPanel extends JPanel implements Disposable {
             if (!mouseInside && !dragging && !resizing) setRevealed(false);
         });
         previewTimer = timer(Math.max(10, settings().hoverDelayMs), this::showPreview);
+        scrollRender = timer(30, this::submitRender);
 
         editor.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void documentChanged(@NotNull DocumentEvent event) { invalidateMap(); }
         }, this);
         editor.getScrollingModel().addVisibleAreaListener(event -> {
-            if (!settings().fit && !dragging) invalidateMap();
+            // The raster covers more than the panel; render the next window before the shown part leaves it.
+            if (frame != null && !covers(frame.geometry(), geometry(), getHeight() / 2.0)) requestScrollRender();
             repaint();
         }, this);
         editor.getCaretModel().addCaretListener(new CaretListener() {
@@ -127,6 +143,24 @@ public final class MinimapPanel extends JPanel implements Disposable {
             }
             @Override public void componentShown(ComponentEvent event) { invalidateMap(); }
             @Override public void componentHidden(ComponentEvent event) {
+                generation++;
+                debounce.stop();
+                if (renderTask != null) renderTask.cancel(true);
+                frame = null;
+                preview.hide();
+            }
+        });
+        // Tab switches change showing state without component events: refresh a stale map when shown again,
+        // and drop the raster of hidden tabs so background editors do not each hold an image.
+        addHierarchyListener(event -> {
+            if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0 || disposed) return;
+            if (isShowing()) {
+                if (inDialog()) {
+                    CodeScrollManager.getInstance().hide(editor);
+                    return;
+                }
+                if (frame == null || frame.stamp() != editor.getDocument().getModificationStamp()) invalidateMap();
+            } else {
                 generation++;
                 debounce.stop();
                 if (renderTask != null) renderTask.cancel(true);
@@ -183,6 +217,12 @@ public final class MinimapPanel extends JPanel implements Disposable {
         }
     }
 
+    /** Small editors in modal dialogs (settings previews, code style samples) get no minimap; diffs do. */
+    private boolean inDialog() {
+        return editor.getEditorKind() != EditorKind.DIFF
+                && SwingUtilities.getWindowAncestor(editor.getComponent()) instanceof JDialog;
+    }
+
     private CodeScrollSettings.State settings() { return CodeScrollSettings.getInstance().getState(); }
 
     private boolean collapsed() {
@@ -215,21 +255,59 @@ public final class MinimapPanel extends JPanel implements Disposable {
         invalidateMap();
     }
 
-    private int visibleStart() {
-        return editor.xyToLogicalPosition(new Point(0, editor.getScrollingModel().getVisibleArea().y)).line;
-    }
-
-    private int visibleEnd() {
+    /** First visible logical line, fractional when the editor is scrolled to the middle of a line. */
+    private double topLine() {
         Rectangle area = editor.getScrollingModel().getVisibleArea();
-        return Math.min(editor.getDocument().getLineCount(),
-                editor.xyToLogicalPosition(new Point(0, area.y + area.height)).line + 1);
+        int line = editor.xyToLogicalPosition(new Point(0, area.y)).line;
+        double lineHeight = Math.max(1, editor.getLineHeight());
+        return line + (area.y - editor.logicalPositionToXY(new LogicalPosition(line, 0)).y) / lineHeight;
     }
 
+    /**
+     * How many logical lines the visible area spans. The map draws logical lines, so folded regions,
+     * inlays and soft wraps must be measured in them too, not as visible height / line height.
+     */
+    private double spanLines() {
+        Rectangle area = editor.getScrollingModel().getVisibleArea();
+        int y = area.y + area.height;
+        int line = editor.xyToLogicalPosition(new Point(0, y)).line;
+        double lineHeight = Math.max(1, editor.getLineHeight());
+        double fraction = Math.clamp((y - editor.logicalPositionToXY(new LogicalPosition(line, 0)).y) / lineHeight, 0, 1);
+        return Math.max(1, line + fraction - topLine());
+    }
+
+    /** Live geometry for the current scroll position; cheap, computed on every paint and event. */
     private MapGeometry geometry() {
-        if (dragging && dragGeometry != null) return dragGeometry;
-        if (frame != null) return frame.geometry();
-        return MapGeometry.create(editor.getDocument().getLineCount(), getHeight(), settings().fit,
-                settings().fill, settings().pixelsPerLine, visibleStart(), visibleEnd());
+        var s = settings();
+        return MapGeometry.forScroll(editor.getDocument().getLineCount(), getHeight(), s.fit, s.fill,
+                s.pixelsPerLine, topLine(), spanLines());
+    }
+
+    /** Device pixels per panel pixel: 2 on Retina, 1 on standard screens. */
+    private double rasterScale() {
+        GraphicsConfiguration configuration = getGraphicsConfiguration();
+        double scale = configuration == null ? 1 : configuration.getDefaultTransform().getScaleY();
+        return Math.clamp(scale, 1, 3);
+    }
+
+    /**
+     * Whether a rendered raster holds every map row the panel shows at {@code live}, plus {@code margin}
+     * rows beyond each edge (the margin is waived at the document's own start and end).
+     */
+    private boolean covers(MapGeometry raster, MapGeometry live, double margin) {
+        if (raster.scale() != live.scale() || raster.lines() != live.lines()) return false;
+        double top = Math.max(0, live.origin() - margin);
+        double bottom = Math.min(live.origin() + getHeight() + margin, live.documentHeight());
+        return top >= raster.origin() - 0.5 && bottom <= raster.origin() + raster.height() + 0.5;
+    }
+
+    /**
+     * Scrolling must not cancel a render in flight: with continuous scrolling each request would cancel
+     * the previous one and no raster would ever finish. Queue one more render instead.
+     */
+    private void requestScrollRender() {
+        if (renderTask != null && !renderTask.isDone()) renderAgain = true;
+        else if (!scrollRender.isRunning()) scrollRender.restart();
     }
 
     private boolean inLineRange() {
@@ -273,7 +351,6 @@ public final class MinimapPanel extends JPanel implements Disposable {
 
     private void submitRender() {
         if (disposed || editor.isDisposed() || getWidth() < 40 || getHeight() <= 0 || !isShowing()) return;
-        if (dragging && !settings().fit) return;
         var s = settings();
         int lines = editor.getDocument().getLineCount();
         if (!inLineRange()) {
@@ -281,9 +358,20 @@ public final class MinimapPanel extends JPanel implements Disposable {
             repaint();
             return;
         }
-        MapGeometry geometry = MapGeometry.create(lines, getHeight(), s.fit, s.fill, s.pixelsPerLine,
-                visibleStart(), visibleEnd());
-        int width = Math.min(RasterRenderer.MAX_WIDTH, getWidth());
+        // Render a window up to the raster limit around the shown part, so scrolling just moves the image.
+        // The raster uses device pixels, so HiDPI screens get a sharp map instead of an upscaled one.
+        double rasterScale = rasterScale();
+        MapGeometry live = geometry();
+        double documentHeight = live.documentHeight();
+        int maxWindow = (int) (RasterRenderer.MAX_HEIGHT / rasterScale);
+        int windowHeight = (int) Math.min(maxWindow, Math.max(1, Math.ceil(documentHeight)));
+        double windowOrigin = documentHeight <= maxWindow ? 0 : Math.clamp(
+                live.origin() - (windowHeight - getHeight()) / 2.0, 0, documentHeight - windowHeight);
+        MapGeometry geometry = live.window(windowHeight, Math.floor(windowOrigin));
+        MapGeometry device = new MapGeometry(geometry.lines(), (int) Math.ceil(windowHeight * rasterScale),
+                geometry.scale() * rasterScale, geometry.origin() * rasterScale);
+        int charWidth = (int) Math.max(1, Math.round(rasterScale));
+        int width = Math.min(RasterRenderer.MAX_WIDTH, (int) Math.round(getWidth() * rasterScale));
         EditorColorsScheme scheme = editor.getColorsScheme();
         int foreground = scheme.getDefaultForeground().getRGB();
         int background = scheme.getDefaultBackground().getRGB();
@@ -292,60 +380,130 @@ public final class MinimapPanel extends JPanel implements Disposable {
         int intensity = s.textIntensity;
         // The editor's incremental highlighter already holds lexer state for the whole document.
         EditorHighlighter highlighter = s.syntaxColors && editor instanceof EditorEx ex ? ex.getHighlighter() : null;
+        var project = editor.getProject();
+        VirtualFile colorFile = FileDocumentManager.getInstance().getFile(editor.getDocument());
         boolean labels = !textless && (s.showMarkers || s.showMethods);
+        String labelKey = String.join("\u0000", String.valueOf(labels), s.showMarkers ? s.markerWords : "",
+                s.showMarkers ? s.markerRegex : "", String.valueOf(s.showMethods), s.methodNames,
+                s.methodAnnotations, String.valueOf(isMarkdown(FileDocumentManager.getInstance().getFile(editor.getDocument()))));
+        List<Label> reusableLabels = labelKey.equals(cachedLabelKey) ? cachedLabels : null;
+        Overview reusableOverview = frame == null ? null : frame.overview();
+        long reusableStamp = cachedLabelStamp;
         String words = s.showMarkers ? s.markerWords : "";
         String regex = s.showMarkers ? s.markerRegex : "";
         boolean methods = s.showMethods;
         String methodNames = s.methodNames;
         String methodAnnotations = s.methodAnnotations;
-        boolean markdown = isMarkdown(FileDocumentManager.getInstance().getFile(editor.getDocument()));
+        VirtualFile labelFile = FileDocumentManager.getInstance().getFile(editor.getDocument());
+        boolean markdown = isMarkdown(labelFile);
+        boolean hashComments = hashComments(labelFile);
         long request = generation;
         renderTask = ReadAction.nonBlocking(() -> {
             var document = editor.getDocument();
             CharSequence text = document.getImmutableCharSequence();
             long stamp = document.getModificationStamp();
-            int capacity = textless ? 0 : geometry.height() * 3;
-            int[] starts = new int[capacity];
-            int[] ends = new int[capacity];
-            int[] rows = new int[capacity];
-            int samples = 0;
-            for (int y = 0; y < geometry.height() && !textless; y++) {
-                if ((y & 63) == 0) ProgressManager.checkCanceled();
-                if (y + geometry.origin() >= geometry.lines() * geometry.scale()) break;
-                int first = geometry.line(y);
-                int last = geometry.line(y + 0.999);
-                int[] candidates = { first, (first + last) / 2, last };
-                int previous = -1;
-                for (int line : candidates) {
-                    if (line == previous) continue;
-                    previous = line;
-                    // A write action cancels this read before stale line offsets are published.
-                    if (line >= document.getLineCount()) continue;
-                    starts[samples] = document.getLineStartOffset(line);
-                    ends[samples] = document.getLineEndOffset(line);
-                    rows[samples++] = y;
+            TokenColors palette = highlighter == null ? null : new TokenColors(scheme, project, colorFile);
+            BufferedImage image = rasterize(document, text, device, width, charWidth, highlighter, palette,
+                    foreground, background, accurate, intensity, textless);
+            // Long documents also get a coarse raster of the whole file, drawn wherever the precise window
+            // does not reach yet (fast drags), so the map never shows blank stretches while catching up.
+            Overview overview = null;
+            if (!textless && documentHeight > maxWindow) {
+                if (reusableOverview != null && reusableOverview.stamp() == stamp && reusableOverview.width() == width
+                        && reusableOverview.rasterScale() == rasterScale) {
+                    overview = reusableOverview;
+                } else {
+                    int rows = RasterRenderer.MAX_HEIGHT;
+                    MapGeometry whole = new MapGeometry(geometry.lines(), rows, (double) rows / geometry.lines(), 0);
+                    overview = new Overview(rasterize(document, text, whole, width, charWidth, highlighter, palette,
+                            foreground, background, accurate, intensity, false), whole.scale(), rasterScale, width, stamp);
                 }
             }
-            List<RasterRenderer.Token> tokens = highlighter == null ? List.of()
-                    : tokens(highlighter, text.length(), starts, ends, samples);
-            BufferedImage image = RasterRenderer.render(text, width, geometry.height(),
-                    Arrays.copyOf(starts, samples), Arrays.copyOf(ends, samples), Arrays.copyOf(rows, samples),
-                    foreground, background, tokens, accurate, intensity, ProgressManager::checkCanceled);
             List<Label> found = new ArrayList<>();
-            if (labels) {
+            if (reusableLabels != null && reusableStamp == stamp) {
+                found = reusableLabels;
+            } else if (labels) {
                 for (var marker : MarkerScanner.scan(text, words, methods, methodNames, methodAnnotations,
-                        regex, markdown, 2000, ProgressManager::checkCanceled)) {
+                        regex, markdown, hashComments, 2000, ProgressManager::checkCanceled)) {
                     found.add(new Label(document.getLineNumber(marker.offset()), marker.label(), marker.declaration()));
                 }
             }
-            return new Frame(image, geometry, List.copyOf(found), stamp);
+            return new Frame(image, geometry, rasterScale, List.copyOf(found), stamp, overview);
         }).expireWith(this).coalesceBy(this)
                 .finishOnUiThread(ModalityState.any(), result -> {
                     if (disposed || editor.isDisposed() || request != generation
                             || result.stamp() != editor.getDocument().getModificationStamp()) return;
                     frame = result;
+                    cachedLabels = result.labels();
+                    cachedLabelStamp = result.stamp();
+                    cachedLabelKey = labelKey;
                     repaint();
+                    if (renderAgain) {
+                        renderAgain = false;
+                        if (!covers(result.geometry(), geometry(), getHeight() / 2.0)) scrollRender.restart();
+                    }
                 }).submit(AppExecutorUtil.getAppExecutorService());
+    }
+
+    /** Languages where {@code #} never starts a comment; elsewhere (Python, shell, YAML, unknown) it may. */
+    private static final java.util.Set<String> NO_HASH_COMMENTS = java.util.Set.of("java", "kt", "kts", "scala",
+            "groovy", "c", "h", "cc", "cpp", "hpp", "cs", "m", "mm", "swift", "go", "rs", "dart", "js", "jsx",
+            "mjs", "cjs", "ts", "tsx", "vue", "svelte", "css", "scss", "sass", "less", "json", "jsonc", "html",
+            "htm", "xml", "sql", "proto");
+
+    static boolean hashComments(VirtualFile file) {
+        String extension = file == null ? null : file.getExtension();
+        return extension == null || !NO_HASH_COMMENTS.contains(extension.toLowerCase(Locale.ROOT));
+    }
+
+    /** Samples the rows of {@code device} (device-pixel geometry) and renders them antialiased. */
+    private static BufferedImage rasterize(com.intellij.openapi.editor.Document document, CharSequence text,
+                                           MapGeometry device, int width, int charWidth,
+                                           EditorHighlighter highlighter, TokenColors palette,
+                                           int foreground, int background, boolean accurate, int intensity,
+                                           boolean textless) {
+        int capacity = textless ? 0 : device.height() * MAX_LINES_PER_ROW;
+        int[] starts = new int[capacity];
+        int[] ends = new int[capacity];
+        int[] rows = new int[capacity];
+        float[] phases = new float[capacity];
+        float[] coverages = new float[capacity];
+        int samples = 0;
+        double lineScale = device.scale();
+        int lineCount = document.getLineCount();
+        for (int y = 0; y < device.height() && !textless; y++) {
+            if ((y & 63) == 0) ProgressManager.checkCanceled();
+            double rowTop = y + device.origin();
+            if (rowTop >= device.documentHeight()) break;
+            // Every line overlapping this row contributes by the share of the row it covers.
+            int first = (int) Math.floor(rowTop / lineScale);
+            int last = Math.min(lineCount - 1, (int) Math.floor((rowTop + 1 - 1e-9) / lineScale));
+            int count = last - first + 1;
+            if (count <= 0) continue;
+            int taken = Math.min(count, MAX_LINES_PER_ROW);
+            // When more lines share a row than are sampled, the sampled ones stand in for the rest.
+            double stand = (double) count / taken;
+            for (int k = 0; k < taken; k++) {
+                int line = taken == count ? first + k : first + (int) ((long) k * (count - 1) / Math.max(1, taken - 1));
+                double lineTop = line * lineScale;
+                double overlapTop = Math.max(rowTop, lineTop);
+                double overlapBottom = Math.min(rowTop + 1, lineTop + lineScale);
+                if (overlapBottom <= overlapTop) continue;
+                // A write action cancels this read before stale line offsets are published.
+                starts[samples] = document.getLineStartOffset(line);
+                ends[samples] = document.getLineEndOffset(line);
+                phases[samples] = (float) Math.clamp(((overlapTop + overlapBottom) / 2 - lineTop) / lineScale, 0, 0.999);
+                coverages[samples] = (float) Math.min(1, (overlapBottom - overlapTop) * stand);
+                rows[samples++] = y;
+            }
+        }
+        List<RasterRenderer.Token> tokens = highlighter == null ? List.of()
+                : tokens(highlighter, palette, text.length(), starts, ends, samples);
+        return RasterRenderer.render(text, width, device.height(),
+                Arrays.copyOf(starts, samples), Arrays.copyOf(ends, samples), Arrays.copyOf(rows, samples),
+                Arrays.copyOf(phases, samples), Arrays.copyOf(coverages, samples), device.scale(), charWidth,
+                RasterRenderer.INDENT * charWidth, foreground, background, tokens, accurate, intensity,
+                ProgressManager::checkCanceled);
     }
 
     static boolean isMarkdown(VirtualFile file) {
@@ -358,7 +516,50 @@ public final class MinimapPanel extends JPanel implements Disposable {
     }
 
     /** Colors only the sampled ranges; tokens stay sorted by start offset as the renderer requires. */
-    private static List<RasterRenderer.Token> tokens(EditorHighlighter highlighter, int length,
+    /**
+     * Resolves token colors with this render's own syntax highlighters (one per token language, so injected
+     * and layered languages keep their colors) instead of the editor highlighter's attribute cache, which is
+     * a plain map the EDT fills concurrently.
+     */
+    private static final class TokenColors {
+        private final EditorColorsScheme scheme;
+        private final com.intellij.openapi.project.Project project;
+        private final VirtualFile file;
+        private final java.util.Map<com.intellij.lang.Language, SyntaxHighlighter> highlighters = new java.util.HashMap<>();
+        private final java.util.Map<com.intellij.psi.tree.IElementType, Integer> colors = new java.util.HashMap<>();
+
+        TokenColors(EditorColorsScheme scheme, com.intellij.openapi.project.Project project, VirtualFile file) {
+            this.scheme = scheme;
+            this.project = project;
+            this.file = file;
+        }
+
+        /** Foreground RGB of a token type, or -1 for the default foreground. */
+        int color(com.intellij.psi.tree.IElementType type) {
+            if (type == null) return -1;
+            Integer cached = colors.get(type);
+            if (cached != null) return cached;
+            SyntaxHighlighter highlighter = highlighters.computeIfAbsent(type.getLanguage(), language -> {
+                SyntaxHighlighter byLanguage = SyntaxHighlighterFactory.getSyntaxHighlighter(language, project, file);
+                return byLanguage != null || file == null ? byLanguage
+                        : SyntaxHighlighterFactory.getSyntaxHighlighter(file.getFileType(), project, file);
+            });
+            int rgb = -1;
+            if (highlighter != null) {
+                // Later keys are layered over earlier ones, as in the editor.
+                for (TextAttributesKey key : highlighter.getTokenHighlights(type)) {
+                    TextAttributes attributes = scheme.getAttributes(key);
+                    if (attributes != null && attributes.getForegroundColor() != null) {
+                        rgb = attributes.getForegroundColor().getRGB();
+                    }
+                }
+            }
+            colors.put(type, rgb);
+            return rgb;
+        }
+    }
+
+    private static List<RasterRenderer.Token> tokens(EditorHighlighter highlighter, TokenColors palette, int length,
                                                      int[] starts, int[] ends, int samples) {
         List<RasterRenderer.Token> tokens = new ArrayList<>();
         int previousStart = -1;
@@ -366,13 +567,16 @@ public final class MinimapPanel extends JPanel implements Disposable {
             if ((i & 63) == 0) ProgressManager.checkCanceled();
             if (ends[i] <= starts[i]) continue;
             HighlighterIterator iterator = highlighter.createIterator(starts[i]);
-            while (!iterator.atEnd() && iterator.getStart() < ends[i] && tokens.size() < MAX_TOKENS) {
+            // Only the first MAX_COLUMNS characters are drawn: a minified megabyte line must not be walked.
+            int drawnEnd = Math.min(ends[i], starts[i] + RasterRenderer.MAX_COLUMNS);
+            int steps = 0;
+            while (!iterator.atEnd() && iterator.getStart() < drawnEnd && tokens.size() < MAX_TOKENS) {
+                if ((++steps & 255) == 0) ProgressManager.checkCanceled();
                 int start = Math.clamp(iterator.getStart(), 0, length);
                 int end = Math.clamp(iterator.getEnd(), start, length);
-                TextAttributes attributes = iterator.getTextAttributes();
-                Color color = attributes == null ? null : attributes.getForegroundColor();
-                if (color != null && start >= previousStart) {
-                    tokens.add(new RasterRenderer.Token(start, end, color.getRGB()));
+                int color = palette.color(iterator.getTokenType());
+                if (color != -1 && start >= previousStart) {
+                    tokens.add(new RasterRenderer.Token(start, end, color));
                     previousStart = start;
                 }
                 iterator.advance();
@@ -428,7 +632,15 @@ public final class MinimapPanel extends JPanel implements Disposable {
                 g.fillRect(getWidth() / 2 - 1, viewport.y, 3, viewport.height);
                 return;
             }
-            if (frame != null) g.drawImage(frame.image(), 0, 0, null);
+            if (frame != null && frame.overview() != null) paintOverview(g, geometry, frame.overview());
+            if (frame != null) {
+                BufferedImage image = frame.image();
+                g.drawImage(image, 0, (int) Math.round(frame.geometry().origin() - geometry.origin()),
+                        (int) Math.round(image.getWidth() / frame.rasterScale()),
+                        (int) Math.round(image.getHeight() / frame.rasterScale()), null);
+                // Moved to a screen with another scale: render sharp for it.
+                if (frame.rasterScale() != rasterScale()) requestScrollRender();
+            }
             var selection = editor.getSelectionModel();
             if (selection.hasSelection()) {
                 int top = editor.getDocument().getLineNumber(selection.getSelectionStart());
@@ -438,7 +650,10 @@ public final class MinimapPanel extends JPanel implements Disposable {
             }
             paintMarkup(g, geometry, editor.getMarkupModel(), palette.caretLine());
             if (editor instanceof EditorEx ex) paintMarkup(g, geometry, ex.getFilteredDocumentMarkupModel(), palette.caretLine());
-            g.setColor(palette.viewport());
+            // The frame brightens while hovered and more while dragged, so its state is visible.
+            Color fill = palette.viewport();
+            double boost = dragging ? 2.3 : hoverFrame ? 1.6 : 1;
+            g.setColor(alpha(fill, (int) Math.min(255, Math.round(fill.getAlpha() * boost))));
             g.fill(viewport);
             if (s.viewportBorderWidth > 0) {
                 g.setColor(palette.viewportBorder());
@@ -459,24 +674,48 @@ public final class MinimapPanel extends JPanel implements Disposable {
         } finally { g.dispose(); }
     }
 
+    /** Stretches the part of the whole-document raster that the panel shows; the precise window paints over it. */
+    private void paintOverview(Graphics2D g, MapGeometry geometry, Overview overview) {
+        BufferedImage image = overview.image();
+        double topLine = geometry.origin() / geometry.scale();
+        double bottomLine = (geometry.origin() + getHeight()) / geometry.scale();
+        int sourceTop = Math.clamp((int) Math.floor(topLine * overview.rowsPerLine()), 0, image.getHeight() - 1);
+        int sourceBottom = Math.clamp((int) Math.ceil(bottomLine * overview.rowsPerLine()), sourceTop + 1, image.getHeight());
+        int targetTop = (int) Math.round(sourceTop / overview.rowsPerLine() * geometry.scale() - geometry.origin());
+        int targetBottom = (int) Math.round(sourceBottom / overview.rowsPerLine() * geometry.scale() - geometry.origin());
+        Graphics2D stretched = (Graphics2D) g.create();
+        try {
+            stretched.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            stretched.drawImage(image, 0, targetTop, (int) Math.round(image.getWidth() / overview.rasterScale()), targetBottom,
+                    0, sourceTop, image.getWidth(), sourceBottom, null);
+        } finally {
+            stretched.dispose();
+        }
+    }
+
     private void paintLabels(Graphics2D g, MapGeometry geometry, Palette palette) {
         int size = settings().markerFontSize;
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         Font marker = new Font(Font.MONOSPACED, Font.PLAIN, size);
         Font declaration = marker.deriveFont(Font.BOLD);
         int height = size + 2;
-        int previousBottom = -1;
         Color plate = alpha(palette.background(), 215);
-        for (Label label : frame.labels()) {
-            int y = (int) geometry.y(label.line());
-            // Closely spaced labels are skipped rather than drawn on top of each other.
-            if (y < 0 || y >= getHeight() || y < previousBottom) continue;
+        List<Label> labels = frame.labels();
+        double[] tops = new double[labels.size()];
+        for (int i = 0; i < tops.length; i++) tops[i] = labels.get(i).line() * geometry.scale();
+        // Overlaps are resolved in document coordinates, so scrolling never changes which labels show.
+        boolean[] visible = LabelLayout.visible(tops, height + 1);
+        for (int i = 0; i < tops.length; i++) {
+            if (!visible[i]) continue;
+            Label label = labels.get(i);
+            int y = (int) Math.round(tops[i] - geometry.origin());
+            // A label partly outside the panel is clipped by the panel edge like code text.
+            if (y + height <= 0 || y >= getHeight()) continue;
             g.setColor(plate);
             g.fillRect(3, y, getWidth() - 9, height);
             g.setFont(label.declaration() ? declaration : marker);
             g.setColor(label.declaration() ? palette.declarationLabel() : palette.markerLabel());
             g.drawString(label.text(), 4, y + size);
-            previousBottom = y + height + 1;
         }
     }
 
@@ -495,18 +734,12 @@ public final class MinimapPanel extends JPanel implements Disposable {
         g.drawLine(box.x + box.width - 4, box.y + 3, box.x + 3, box.y + box.height - 4);
     }
 
-    /**
-     * The frame spans as many map lines as the editor can show, not just the lines that exist:
-     * otherwise a short or empty file gets a frame only a few pixels high that cannot be grabbed.
-     */
+    /** The editor's visible area at map scale, clamped to the document (see {@link MapGeometry}). */
     private Rectangle viewport(MapGeometry geometry) {
-        Rectangle area = editor.getScrollingModel().getVisibleArea();
-        double lineHeight = Math.max(1, editor.getLineHeight());
-        int line = visibleStart();
-        double topLine = line + (area.y - editor.logicalPositionToXY(new LogicalPosition(line, 0)).y) / lineHeight;
-        int top = (int) Math.max(0, Math.floor(geometry.y(topLine)));
-        int height = (int) Math.ceil(area.height / lineHeight * geometry.scale());
-        return new Rectangle(0, top, getWidth(), Math.max(MIN_VIEWPORT_HEIGHT, height));
+        double span = spanLines();
+        int top = (int) Math.floor(geometry.frameTop(topLine(), span));
+        int height = (int) Math.ceil(geometry.frameHeight(span));
+        return new Rectangle(0, top, getWidth(), Math.max(1, height));
     }
 
     private void paintMarkup(Graphics2D g, MapGeometry geometry, MarkupModel model, Color accent) {
@@ -564,6 +797,7 @@ public final class MinimapPanel extends JPanel implements Disposable {
                     }
                     case DIAGNOSTIC -> {
                         if (!s.showDiagnostics) continue;
+                        if (MarkupClassifier.isError(highlighter.getLayer()) ? !s.showErrors : !s.showWarnings) continue;
                         g.setColor(s.fullLineDiagnostics ? alpha(stripe, 110) : stripe);
                         if (s.fullLineDiagnostics) band(g, geometry, top, bottom, 0, width);
                         else band(g, geometry, top, bottom, farEdge, 4);
@@ -618,13 +852,20 @@ public final class MinimapPanel extends JPanel implements Disposable {
         if (resizing) return;
         MapGeometry geometry = geometry();
         dragging = viewport(geometry).contains(event.getPoint()) && !event.isShiftDown();
-        dragOffset = event.getY() - geometry.y(visibleStart());
-        dragGeometry = geometry;
-        dragPixelOffset = editor.getScrollingModel().getVisibleArea().y
-                - editor.logicalPositionToXY(new LogicalPosition(visibleStart(), 0)).y;
-        if (dragging) return;
+        if (dragging) {
+            dragStartY = event.getY();
+            dragStartFrameTop = geometry.frameTop(topLine(), spanLines()) + geometry.origin();
+            repaint();
+            return;
+        }
         switch (settings().clickTiming) {
-            case DOWN -> click(event);
+            case DOWN -> {
+                // The frame lands centered under the pointer; keep pulling it without releasing.
+                dragStartFrameTop = click(event);
+                dragStartY = event.getY();
+                dragging = true;
+                repaint();
+            }
             case UP -> pendingClick = true;
             case NONE -> { }
         }
@@ -634,8 +875,7 @@ public final class MinimapPanel extends JPanel implements Disposable {
         if (resizing) CodeScrollManager.getInstance().relayoutAll();
         if (pendingClick && contains(event.getPoint())) click(event);
         pendingClick = resizing = dragging = false;
-        dragGeometry = null;
-        if (!settings().fit) invalidateMap();
+        repaint();
         if (!mouseInside && settings().hoverOnly) collapseTimer.restart();
         popup(event);
     }
@@ -647,12 +887,52 @@ public final class MinimapPanel extends JPanel implements Disposable {
             updateWidth();
             invalidateMap();
         } else if (dragging) {
-            navigate(dragGeometry.line(event.getY() - dragOffset), 0, false, false);
+            dragFrame(event.getY());
         }
+    }
+
+    /**
+     * Moves the editor so the frame follows the pointer. When the map scrolls, the frame covers the
+     * whole document while travelling only the panel height, so pointer movement is scaled accordingly.
+     */
+    private void dragFrame(int y) {
+        MapGeometry geometry = geometry();
+        double frame = geometry.frameHeight(spanLines());
+        scrollToFrameTop(dragStartFrameTop + documentDelta(geometry, frame, y - dragStartY));
+    }
+
+    /**
+     * Converts a pointer movement on the panel into a movement of the frame in map-document pixels. When the
+     * map scrolls, the frame covers the whole document while travelling only the panel height.
+     */
+    private double documentDelta(MapGeometry geometry, double frame, double panelDelta) {
+        double documentHeight = geometry.documentHeight();
+        double maxFrameTop = Math.max(0, documentHeight - frame);
+        double travel = Math.min(getHeight(), documentHeight) - frame;
+        return documentHeight <= getHeight() || travel <= 0 ? panelDelta : panelDelta * maxFrameTop / travel;
+    }
+
+    /** Scrolls the editor so the frame's top is at {@code frameTop} map-document pixels. */
+    private void scrollToFrameTop(double frameTop) {
+        MapGeometry geometry = geometry();
+        double frame = geometry.frameHeight(spanLines());
+        double maxFrameTop = Math.max(0, geometry.documentHeight() - frame);
+        double line = Math.clamp(frameTop, 0, maxFrameTop) / geometry.scale();
+        int whole = Math.clamp((int) Math.floor(line), 0, Math.max(0, editor.getDocument().getLineCount() - 1));
+        int editorY = editor.logicalPositionToXY(new LogicalPosition(whole, 0)).y
+                + (int) Math.round((line - whole) * editor.getLineHeight());
+        editor.getScrollingModel().disableAnimation();
+        try { editor.getScrollingModel().scrollVertically(Math.max(0, editorY)); }
+        finally { editor.getScrollingModel().enableAnimation(); }
     }
 
     private void moved(MouseEvent event) {
         lastMouseY = event.getY();
+        boolean overFrame = viewport(geometry()).contains(event.getPoint());
+        if (overFrame != hoverFrame) {
+            hoverFrame = overFrame;
+            repaint();
+        }
         setCursor(Cursor.getPredefinedCursor(onResizeEdge(event.getX()) ? Cursor.E_RESIZE_CURSOR : Cursor.HAND_CURSOR));
         if (preview.isShowing()) showPreview();
         else if (settings().showPreview && !collapsed()) {
@@ -673,6 +953,7 @@ public final class MinimapPanel extends JPanel implements Disposable {
 
     private void exited() {
         mouseInside = false;
+        hoverFrame = false;
         revealTimer.stop();
         previewTimer.stop();
         preview.hide();
@@ -698,39 +979,46 @@ public final class MinimapPanel extends JPanel implements Disposable {
         preview.show(this, settings().leftAligned, lastMouseY, geometry().line(lastMouseY));
     }
 
-    private void click(MouseEvent event) {
-        // With "click by mouse position", the column under the pointer is used as well as the line.
-        int column = settings().clickByMousePosition ? Math.max(0, event.getX() - 4) : 0;
-        navigate(geometry().line(event.getY()), column, true, event.isShiftDown());
+    /**
+     * Jumps so that the frame is centered under the pointer, as if it had been grabbed by its middle, and
+     * returns the new frame top in map-document pixels. In proportional mode the map scrolls with the
+     * editor, so the target is solved through the same mapping that dragging uses, not by centering the
+     * clicked line in the editor (which left the frame above or below the pointer).
+     */
+    private double click(MouseEvent event) {
+        MapGeometry geometry = geometry();
+        double frame = geometry.frameHeight(spanLines());
+        double frameTop = documentDelta(geometry, frame, event.getY() - frame / 2);
+        scrollToFrameTop(frameTop);
+        MapGeometry moved = geometry();
+        if (!settings().scrollOnly) {
+            // With "click by mouse position", the column under the pointer is used as well as the line.
+            int column = settings().clickByMousePosition ? Math.max(0, event.getX() - 4) : 0;
+            placeCaret(moved.line(event.getY()), column, event.isShiftDown());
+        }
+        return moved.frameTop(topLine(), spanLines()) + moved.origin();
     }
 
-    private void navigate(int line, int column, boolean moveCaret, boolean extendSelection) {
+    /** Moves the caret (expanding a fold that hides it) without scrolling; the click already scrolled. */
+    private void placeCaret(int line, int column, boolean extendSelection) {
         if (disposed || editor.isDisposed()) return;
         var document = editor.getDocument();
         int bounded = Math.clamp(line, 0, Math.max(0, document.getLineCount() - 1));
         int offset = Math.min(document.getLineEndOffset(bounded),
                 editor.logicalPositionToOffset(new LogicalPosition(bounded, column)));
-        if (moveCaret && !settings().scrollOnly) {
-            int anchor = editor.getSelectionModel().hasSelection()
-                    ? editor.getSelectionModel().getLeadSelectionOffset() : editor.getCaretModel().getOffset();
-            editor.getFoldingModel().runBatchFoldingOperation(() -> {
-                for (FoldRegion region : editor.getFoldingModel().getAllFoldRegions()) {
-                    if (!region.isExpanded() && offset > region.getStartOffset() && offset < region.getEndOffset()) {
-                        region.setExpanded(true);
-                    }
+        int anchor = editor.getSelectionModel().hasSelection()
+                ? editor.getSelectionModel().getLeadSelectionOffset() : editor.getCaretModel().getOffset();
+        editor.getFoldingModel().runBatchFoldingOperation(() -> {
+            for (FoldRegion region : editor.getFoldingModel().getAllFoldRegions()) {
+                if (!region.isExpanded() && offset > region.getStartOffset() && offset < region.getEndOffset()) {
+                    region.setExpanded(true);
                 }
-            });
-            editor.getCaretModel().moveToOffset(offset);
-            if (extendSelection) editor.getSelectionModel().setSelection(anchor, offset);
-            else editor.getSelectionModel().removeSelection();
-            editor.getContentComponent().requestFocusInWindow();
-        }
-        int y = editor.logicalPositionToXY(new LogicalPosition(bounded, 0)).y;
-        if (moveCaret) y -= editor.getScrollingModel().getVisibleArea().height / 2;
-        else if (dragging) y += dragPixelOffset;
-        editor.getScrollingModel().disableAnimation();
-        try { editor.getScrollingModel().scrollVertically(Math.max(0, y)); }
-        finally { editor.getScrollingModel().enableAnimation(); }
+            }
+        });
+        editor.getCaretModel().moveToOffset(offset);
+        if (extendSelection) editor.getSelectionModel().setSelection(anchor, offset);
+        else editor.getSelectionModel().removeSelection();
+        editor.getContentComponent().requestFocusInWindow();
     }
 
     private boolean popup(MouseEvent event) {
@@ -748,6 +1036,12 @@ public final class MinimapPanel extends JPanel implements Disposable {
             CodeScrollManager.getInstance().refreshAll();
         });
         menu.add(fill);
+        JCheckBoxMenuItem diagnostics = new JCheckBoxMenuItem("Show Errors and Warnings", settings().showDiagnostics);
+        diagnostics.addActionListener(e -> {
+            settings().showDiagnostics = diagnostics.isSelected();
+            CodeScrollManager.getInstance().repaintAll();
+        });
+        menu.add(diagnostics);
         JCheckBoxMenuItem scrollOnly = new JCheckBoxMenuItem("Preserve Caret When Clicking", settings().scrollOnly);
         scrollOnly.addActionListener(e -> settings().scrollOnly = scrollOnly.isSelected());
         menu.add(scrollOnly);
@@ -769,7 +1063,9 @@ public final class MinimapPanel extends JPanel implements Disposable {
     @Override public void dispose() {
         disposed = true;
         generation++;
-        for (Timer timer : new Timer[]{debounce, markupRepaint, revealTimer, collapseTimer, previewTimer}) timer.stop();
+        for (Timer timer : new Timer[]{debounce, markupRepaint, revealTimer, collapseTimer, previewTimer, scrollRender}) {
+            timer.stop();
+        }
         if (renderTask != null) renderTask.cancel(true);
         editor.getComponent().removeComponentListener(editorResize);
         if (oldScrollbarPolicy != -1 && editor instanceof EditorEx ex && !editor.isDisposed()) {

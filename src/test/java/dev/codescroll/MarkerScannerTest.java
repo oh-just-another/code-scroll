@@ -233,4 +233,25 @@ class MarkerScannerTest {
         assertEquals(List.of("compute totals"), MarkerScanner.scan(text, "TODO", true, "*", "", "",
                 true, 100, null).stream().map(MarkerScanner.Marker::label).toList());
     }
+
+    @Test
+    void sectionMarkersOnlyCountAtTheStartOfAComment() {
+        String text = "/** Sets the region for this client */\n// mark as dirty\n// MARK: - Section\n"
+                + "// region Helpers\n  * TODO inside javadoc\n";
+        assertEquals(List.of("MARK: - Section", "region Helpers"), MarkerScanner.scan(text, "MARK,region", false,
+                "", "", "", false, 100, null).stream().map(MarkerScanner.Marker::label).toList());
+        // Ordinary markers still match anywhere in a comment, but capitals are case-sensitive.
+        assertEquals(List.of("TODO later"), MarkerScanner.scan("// fix it, TODO later\n// todo lowercase\n", "TODO",
+                false, "", "", "", false, 100, null).stream().map(MarkerScanner.Marker::label).toList());
+    }
+
+    @Test
+    void hashIsACommentOnlyWhereTheLanguageUsesIt() {
+        String css = "#main-region { color: red; }\n.a { } # TODO not css\n";
+        String js = "class A { #mark = 1; run() { this.#mark(); } }\n#region Helpers\n";
+        assertEquals(List.of("region Helpers"), MarkerScanner.scan(css + js, "TODO,MARK,region", false, "", "", "",
+                false, false, 100, null).stream().map(MarkerScanner.Marker::label).toList());
+        assertEquals(List.of("TODO tidy"), MarkerScanner.scan("x = this.#a  # TODO tidy\n", "TODO", false, "", "", "",
+                false, true, 100, null).stream().map(MarkerScanner.Marker::label).toList());
+    }
 }

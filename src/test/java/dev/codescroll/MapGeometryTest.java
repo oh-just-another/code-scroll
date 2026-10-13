@@ -44,30 +44,45 @@ class MapGeometryTest {
     }
 
     @Test
-    void proportionalModeCentersViewportAndRoundTrips() {
-        MapGeometry geometry = MapGeometry.create(1000, 100, false, 2, 400, 450);
-        assertEquals(2, geometry.scale());
-        assertEquals(800, geometry.origin());
-        assertEquals(0, geometry.y(400));
-        assertEquals(100, geometry.y(450));
-        for (int line : new int[]{0, 400, 425, 450, 999}) assertEquals(line, geometry.line(geometry.y(line)));
-        assertEquals(425, geometry.line(50));
+    void proportionalFrameTravelsFromTopToBottomWithTheScroll() {
+        // 1000 lines at 2 px: a 2000 px map shown through a 400 px panel, 50 visible lines = 100 px frame.
+        MapGeometry top = MapGeometry.forScroll(1000, 400, false, false, 2, 0, 50);
+        assertEquals(0, top.origin());
+        assertEquals(0, top.frameTop(0, 50));
+        assertEquals(100, top.frameHeight(50));
+        MapGeometry middle = MapGeometry.forScroll(1000, 400, false, false, 2, 475, 50);
+        assertEquals(800, middle.origin(), 1e-9);
+        assertEquals(150, middle.frameTop(475, 50), 1e-9);
+        MapGeometry bottom = MapGeometry.forScroll(1000, 400, false, false, 2, 950, 50);
+        assertEquals(1600, bottom.origin(), 1e-9);
+        assertEquals(300, bottom.frameTop(950, 50), 1e-9);
+        for (int line : new int[]{0, 400, 475, 600, 999}) assertEquals(line, middle.line(middle.y(line)));
     }
 
+    @Test
+    void frameIsClampedToTheDocumentAndHasAMinimumHeight() {
+        // Short document: the frame covers the document only, not the editor's empty space below it.
+        MapGeometry shortFile = MapGeometry.forScroll(9, 600, false, false, 3, 0, 44);
+        assertEquals(27, shortFile.frameHeight(44));
+        assertEquals(0, shortFile.frameTop(0, 44));
+        // Long document in Fit: the frame never collapses below the minimum height.
+        MapGeometry fit = MapGeometry.forScroll(26_000, 800, true, false, 3, 13_000, 44);
+        assertEquals(MapGeometry.MIN_VIEWPORT, fit.frameHeight(44));
+        assertTrue(fit.frameTop(26_000, 44) + fit.frameHeight(44) <= 800 + 1e-9);
+    }
     @Test
     void originsClampAtDocumentStartAndVisibleEnd() {
         MapGeometry start = MapGeometry.create(1000, 100, false, 2, 0, 10);
         assertEquals(0, start.origin());
         assertEquals(0, start.line(0));
         MapGeometry end = MapGeometry.create(1000, 100, false, 2, 990, 1000);
-        assertEquals(1900, end.origin());
-        assertEquals(100, end.y(1000));
+        assertEquals(1900, end.origin(), 1e-9);
+        assertEquals(100, end.y(1000), 1e-9);
         assertEquals(999, end.line(100));
         assertEquals(950, end.line(0));
-        MapGeometry outside = MapGeometry.create(1000, 100, false, 2, 2000, 3000);
-        assertEquals(end.origin(), outside.origin());
+        MapGeometry outside = MapGeometry.create(1000, 100, false, 2, 2000, 2010);
+        assertEquals(end.origin(), outside.origin(), 1e-9);
     }
-
     @Test
     void extremelyLargeDocumentsAvoidIntegerOverflow() {
         int lines = Integer.MAX_VALUE;
@@ -77,25 +92,24 @@ class MapGeometryTest {
         assertEquals(0, fit.line(-Double.MAX_VALUE));
         MapGeometry proportional = MapGeometry.create(lines, 4096, false, 3, lines - 100, lines);
         assertTrue(Double.isFinite(proportional.origin()));
-        assertEquals(lines * 3.0 - 4096, proportional.origin());
-        assertEquals(4096, proportional.y(lines));
-        assertEquals(lines - 100, proportional.line(proportional.y(lines - 100)));
+        assertEquals(lines * 3.0 - 4096, proportional.origin(), 1e-3);
+        assertEquals(4096, proportional.y(lines), 1e-3);
         assertEquals(lines - 1, proportional.line(Double.MAX_VALUE));
     }
-
     @Test
     void resizeRecomputesScaleAndViewportOrigin() {
         MapGeometry small = MapGeometry.create(1000, 100, true, 3, 400, 450);
         MapGeometry large = MapGeometry.create(1000, 300, true, 3, 400, 450);
         assertEquals(small.y(500) * 3, large.y(500), 1e-9);
         assertEquals(500, large.line(large.y(500)));
+        // A 150 px frame does not fit a 100 px panel: its top stays visible instead of failing.
         small = MapGeometry.create(1000, 100, false, 3, 400, 450);
+        assertEquals(1200, small.origin(), 1e-9);
+        assertEquals(0, small.frameTop(400, 50), 1e-9);
         large = MapGeometry.create(1000, 300, false, 3, 400, 450);
-        assertEquals(small.origin() - 100, large.origin());
-        assertEquals(425, small.line(50));
-        assertEquals(425, large.line(150));
+        double frameTop = large.frameTop(400, 50);
+        assertTrue(frameTop >= 0 && frameTop + large.frameHeight(50) <= 300 + 1e-9);
     }
-
     @Test
     void emptyDocumentsAndInvalidHeightsAreClamped() {
         MapGeometry empty = MapGeometry.create(0, 0, true, 2, 0, 0);

@@ -7,8 +7,11 @@ network clients, bytecode agents or third-party runtime JARs are bundled.
 ## Features
 
 - Syntax-colored software raster from the editor's own incremental highlighter,
-  with bounded dimensions and large-file sampling. CLEAN (solid strokes) and
-  ACCURATE (glyph-coverage shading) render styles.
+  with bounded dimensions and large-file sampling, rendered at the screen's
+  device scale (sharp on HiDPI). CLEAN draws solid strokes with a light row
+  between lines; ACCURATE shapes each character by the ink in its upper and
+  lower half (measured once from the platform's monospaced font), so capitals,
+  ascenders and descenders are visible.
 - Fit, Fill and proportional modes; draggable viewport, mouse-wheel scrolling,
   Shift-click selection and optional caret preservation.
 - Click on mouse DOWN, UP or NONE (drag only); optional column-precise clicks.
@@ -27,8 +30,15 @@ network clients, bytecode agents or third-party runtime JARs are bundled.
   declaration labels) follow the editor color scheme by default; each can be
   overridden with a color picker. Adjustable text intensity softens the map
   against the editor background.
-- The viewport frame is as tall as the editor's visible area at map scale, so
-  it stays easy to grab in short and empty files.
+- Proportional mode by default (3 px per line): the viewport frame is the
+  editor's visible area at map scale, clamped to the document, and travels from
+  the top of the map to its bottom with the scroll while the map scrolls under
+  it. The raster covers up to 4096 device rows and the next window is rendered
+  before the shown part reaches its edge, so scrolling just moves the image;
+  a render in flight is never cancelled by further scrolling.
+  Fit squeezes the whole file into the panel; Fill also stretches short files.
+- The frame is a translucent fill without a border by default; it brightens
+  while hovered and dragged.
 - Independent switches per editor kind, empty maps for console/untyped editors
   or outside line limits, extension exclusions and a View-menu toggle.
 - Frontend-only modular packaging, with a split-mode development sandbox.
@@ -71,7 +81,33 @@ the full manual GUI checklist and a real Gateway session are still pending.
 - Labels are scanned in the first 1 MiB. Syntax colors come from the editor's
   highlighter for the sampled lines only, capped at 200,000 tokens per frame.
 - Compressed maps sample up to three document lines per pixel row. Long lines are
-  clipped horizontally. The maximum raster is 300 x 4096 pixels, about 4.7 MiB.
+  clipped horizontally at 512 characters. The maximum raster is 600 x 4096 device
+  pixels (about 9.4 MiB); a typical 110 px map on a 2x screen uses about 3.6 MiB.
+- Labels are cached per document version; scrolling does not rescan the text.
+- Rows shared by several lines, or partly covered by a line, are antialiased by
+  coverage (up to 8 lines sampled per row), so thin and fractional lines fade
+  smoothly instead of flickering.
+- Label overlaps are resolved in document coordinates, so labels do not blink
+  or vanish at the panel edges while scrolling.
+- `region`, `endregion` and `MARK` only count at the start of a comment; marker
+  words written in capitals are case-sensitive. `#` starts a comment only in
+  languages that use it (not in C-family, JavaScript/TypeScript or CSS files,
+  except `#region`/`#endregion`/`#pragma` directives).
+- Errors and warnings can be hidden separately (settings, minimap context menu
+  and View | Toggle Code Scroll Diagnostics). Methods are not labelled unless
+  the "Method names" filter selects them; classes and types always are.
+- The frame height is measured in logical lines, so folded imports, inlays and
+  soft wraps keep it aligned with the code on screen.
+- Editors in modal dialogs (settings previews) get no minimap, except diffs.
+- The hover preview is the platform's editor-fragment view: real colors,
+  folding and line numbers (line numbers can be turned off).
+- A press outside the frame centers the frame under the pointer and keeps
+  dragging it while the button is held.
+- Long files keep a coarse whole-document raster under the precise window, so
+  fast drags never show a blank map while the window catches up.
+- Settings are indexed for the IDE's settings search.
+- Navigating with the rendered Markdown map also scrolls the source editor
+  (can be turned off).
 - Overlay categories are inferred from public highlighter properties (attribute
   keys, thin stripes, gutter renderers), not backend daemon classes, so an
   unusual third-party highlighter can land in the wrong category.

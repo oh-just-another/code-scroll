@@ -7,7 +7,7 @@ import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.options.Configurable;
+import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.ui.ColorPanel;
 import com.intellij.ui.TitledSeparator;
@@ -36,7 +36,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 
-public final class CodeScrollConfigurable implements Configurable {
+public final class CodeScrollConfigurable implements SearchableConfigurable {
+    @Override
+    public @NotNull String getId() {
+        return "dev.codescroll.settings";
+    }
+
     /**
      * A color that follows the editor color scheme until "Custom" is selected; the picker then
      * stores an explicit RRGGBB value. While not custom, the picker previews the scheme color.
@@ -101,7 +106,9 @@ public final class CodeScrollConfigurable implements Configurable {
     private JBCheckBox showQuickHide;
     private JSpinner hoverDelayMs;
     private JBCheckBox previewWheel;
+    private JBCheckBox previewLineNumbers;
     private JBCheckBox showRenderedMarkdown;
+    private JBCheckBox markdownSyncSource;
     private JBCheckBox showMain;
     private JBCheckBox showDiff;
     private JBCheckBox showPreviewEditors;
@@ -128,6 +135,8 @@ public final class CodeScrollConfigurable implements Configurable {
     private JBCheckBox showBookmarks;
     private JBCheckBox showVcs;
     private JBCheckBox showDiagnostics;
+    private JBCheckBox showErrors;
+    private JBCheckBox showWarnings;
     private JBCheckBox showSearch;
     private JBCheckBox fullLineDiagnostics;
     private JBCheckBox fullLineMarkup;
@@ -155,7 +164,7 @@ public final class CodeScrollConfigurable implements Configurable {
         fill = checkbox(form, "Fill editor height", "With Fit, stretch short documents to the full height.");
         syntaxColors = checkbox(form, "Syntax colors", "Use the editor's syntax highlighting colors in the minimap.");
         renderStyle = new JComboBox<>(CodeScrollSettings.RenderStyle.values());
-        row(form, "Render style:", renderStyle, "CLEAN draws solid strokes; ACCURATE shades each character by its glyph shape.");
+        row(form, "Render style:", renderStyle, "CLEAN draws solid strokes with a light row between lines; ACCURATE also shows capitals, ascenders and descenders.");
         textIntensity = spinner(form, "Text intensity (%):", 20, 100,
                 "How strongly minimap text stands out from the editor background, 20 to 100.");
         pixelsPerLine = spinner(form, "Pixels per line:", 1, 8, "Line height when not fitting the document, 1 to 8.");
@@ -194,11 +203,13 @@ public final class CodeScrollConfigurable implements Configurable {
         clickByMousePosition = checkbox(form, "Click by mouse position", "Place the caret at the clicked column, not just the clicked line.");
         scrollOnly = checkbox(form, "Scroll only", "Scroll the editor on click without moving the caret or selection.");
         showPreview = checkbox(form, "Show hover preview", "Show the code under the pointer in a popup while hovering.");
+        previewLineNumbers = checkbox(form, "Line numbers in preview", "Show the document's line numbers next to the hover preview.");
         previewWheel = checkbox(form, "Scroll preview with mouse wheel", "While the preview is open, the wheel moves the preview instead of the editor.");
         hoverDelayMs = spinner(form, "Hover delay (ms):", 0, 2_000, "Delay before the preview or a hover-only minimap appears.");
         hoverOnly = checkbox(form, "Show only on hover", "Keep the minimap collapsed to a narrow strip until the pointer rests on it.");
         showQuickHide = checkbox(form, "Show quick hide button", "Show a × button that hides the minimap in the current editor.");
         showRenderedMarkdown = checkbox(form, "Rendered Markdown minimap", "Show a minimap inside the rendered Markdown preview.");
+        markdownSyncSource = checkbox(form, "Sync source with Markdown minimap", "Scrolling with the preview minimap also scrolls the Markdown source editor.");
 
         section(form, "Editors");
         showMain = checkbox(form, "Main editors", "Show the minimap in regular file editors.");
@@ -220,7 +231,13 @@ public final class CodeScrollConfigurable implements Configurable {
         debounceMs = spinner(form, "Update delay (ms):", 50, 2_000, "Delay after edits before the minimap is redrawn.");
 
         section(form, "Markers and Highlights");
-        showDiagnostics = checkbox(form, "Errors and warnings", "Mark diagnostics on the far edge of the minimap.");
+        showDiagnostics = checkbox(form, "Errors and warnings", "Mark diagnostics on the far edge of the minimap. Also in the minimap context menu and View | Toggle Code Scroll Diagnostics.");
+        showErrors = checkbox(form, "Errors", "Show error marks.");
+        showWarnings = checkbox(form, "Warnings", "Show warning, weak warning and other inspection marks.");
+        showDiagnostics.addActionListener(event -> {
+            showErrors.setEnabled(showDiagnostics.isSelected());
+            showWarnings.setEnabled(showDiagnostics.isSelected());
+        });
         fullLineDiagnostics = checkbox(form, "Full-line diagnostics", "Draw diagnostics across the whole minimap line.");
         showVcs = checkbox(form, "VCS changes", "Mark added, changed and deleted lines on the editor-facing edge.");
         showBookmarks = checkbox(form, "Bookmarks", "Mark bookmarked lines.");
@@ -231,7 +248,7 @@ public final class CodeScrollConfigurable implements Configurable {
         markerRegex = textField(form, "Marker regex:",
                 "Literals, classes, anchors and simple escapes, one quantifier at most; no groups or alternation. Up to 256 characters.");
         showMethods = checkbox(form, "Declarations", "Label method and class declarations.");
-        methodNames = textArea(form, "Method names:", "Comma- or newline-separated filters; * matches any text and ? one character. Empty matches no methods.");
+        methodNames = textArea(form, "Method names:", "Methods to label, comma- or newline-separated; * matches any text, ? one character. Empty labels no methods (classes and types are always labelled).");
         methodAnnotations = textArea(form, "Method annotations:", "Comma- or newline-separated annotation filters, @ optional. Empty allows all methods.");
         markerFontSize = spinner(form, "Label font size:", 6, 36, "Size of marker and declaration labels, 6 to 36.");
 
@@ -430,10 +447,12 @@ public final class CodeScrollConfigurable implements Configurable {
         state.scrollOnly = scrollOnly.isSelected();
         state.showPreview = showPreview.isSelected();
         state.previewWheel = previewWheel.isSelected();
+        state.previewLineNumbers = previewLineNumbers.isSelected();
         state.hoverDelayMs = number(hoverDelayMs);
         state.hoverOnly = hoverOnly.isSelected();
         state.showQuickHide = showQuickHide.isSelected();
         state.showRenderedMarkdown = showRenderedMarkdown.isSelected();
+        state.markdownSyncSource = markdownSyncSource.isSelected();
         state.showMain = showMain.isSelected();
         state.showDiff = showDiff.isSelected();
         state.showPreviewEditors = showPreviewEditors.isSelected();
@@ -447,6 +466,8 @@ public final class CodeScrollConfigurable implements Configurable {
         state.excludedExtensions = excludedExtensions.getText();
         state.debounceMs = number(debounceMs);
         state.showDiagnostics = showDiagnostics.isSelected();
+        state.showErrors = showErrors.isSelected();
+        state.showWarnings = showWarnings.isSelected();
         state.fullLineDiagnostics = fullLineDiagnostics.isSelected();
         state.showVcs = showVcs.isSelected();
         state.showBookmarks = showBookmarks.isSelected();
@@ -500,10 +521,12 @@ public final class CodeScrollConfigurable implements Configurable {
         scrollOnly.setSelected(state.scrollOnly);
         showPreview.setSelected(state.showPreview);
         previewWheel.setSelected(state.previewWheel);
+        previewLineNumbers.setSelected(state.previewLineNumbers);
         hoverDelayMs.setValue(state.hoverDelayMs);
         hoverOnly.setSelected(state.hoverOnly);
         showQuickHide.setSelected(state.showQuickHide);
         showRenderedMarkdown.setSelected(state.showRenderedMarkdown);
+        markdownSyncSource.setSelected(state.markdownSyncSource);
         showMain.setSelected(state.showMain);
         showDiff.setSelected(state.showDiff);
         showPreviewEditors.setSelected(state.showPreviewEditors);
@@ -517,6 +540,10 @@ public final class CodeScrollConfigurable implements Configurable {
         excludedExtensions.setText(state.excludedExtensions);
         debounceMs.setValue(state.debounceMs);
         showDiagnostics.setSelected(state.showDiagnostics);
+        showErrors.setSelected(state.showErrors);
+        showWarnings.setSelected(state.showWarnings);
+        showErrors.setEnabled(state.showDiagnostics);
+        showWarnings.setEnabled(state.showDiagnostics);
         fullLineDiagnostics.setSelected(state.fullLineDiagnostics);
         showVcs.setSelected(state.showVcs);
         showBookmarks.setSelected(state.showBookmarks);

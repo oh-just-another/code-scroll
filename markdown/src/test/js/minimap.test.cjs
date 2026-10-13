@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const {sampleIndices, viewport, scrollTarget, wheelPixels, bitmapSize, textRows, mount} =
+const {sampleIndices, viewport, mapHeight, scrollTarget, wheelPixels, bitmapSize, textRows, mount} =
     require("../../main/resources/dev/codescroll/markdown/rendered-minimap.js");
 
 test("bounded sampling spans the document and includes both endpoints", () => {
@@ -44,6 +44,13 @@ test("wheel normalizes pixel, line and page deltas with a bounded jump", () => {
     assert.equal(wheelPixels(2, 2, 500), 1000);
     assert.equal(wheelPixels(1e10, 0, 500), 1500);
     assert.equal(wheelPixels(NaN, 0, 500), 0);
+});
+
+test("short pages get a short map at fixed scale; long pages fill the available height", () => {
+    assert.equal(mapHeight(500, 800), 50);
+    assert.equal(mapHeight(5000, 800), 500);
+    assert.equal(mapHeight(100000, 800), 800);
+    assert.equal(mapHeight(0, 800), 1);
 });
 
 test("text blocks become thin lines without exceeding the map space they occupy", () => {
@@ -162,11 +169,24 @@ test("mount samples with hard traversal/layout caps and does not alter the Markd
     minimap.dispose();
 });
 
-test("click, drag, wheel and keyboard navigate preview without source scroll notifications", () => {
+test("map navigation scrolls the source editor too by default", () => {
     const b = browser();
     let sourceNotifications = 0;
     b.doc.addEventListener("scroll", () => sourceNotifications++);
     const minimap = mount(b.win, "test");
+    b.tick(0);
+    b.canvas.emit("pointerdown", {button: 0, pointerId: 7, clientY: 250});
+    assert.ok(b.root.scrollTop > 4000);
+    assert.ok(sourceNotifications > 0, "preview scroll reaches Markdown's source synchronization");
+    minimap.dispose();
+});
+
+test("with source sync off, map navigation scrolls only the preview", () => {
+    const b = browser();
+    let sourceNotifications = 0;
+    b.doc.addEventListener("scroll", () => sourceNotifications++);
+    const minimap = mount(b.win, "test");
+    minimap.setSync(false);
     b.tick(0);
     const down = b.canvas.emit("pointerdown", {button: 0, pointerId: 7, clientY: 250});
     assert.equal(down.prevented, true);

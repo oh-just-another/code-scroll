@@ -47,6 +47,17 @@ public final class CodeScrollManager implements Disposable {
         panels.put(editor, panel);
         Disposer.register(this, panel);
         editor.getComponent().add(panel, side);
+        // If another plugin later takes the same side slot, BorderLayout stops laying out our panel: step aside.
+        var takeover = new java.awt.event.ContainerAdapter() {
+            @Override public void componentAdded(java.awt.event.ContainerEvent event) {
+                if (event.getChild() != panel && layout.getLayoutComponent(side) != panel
+                        && layout.getLayoutComponent(absoluteSide) != panel) {
+                    ApplicationManager.getApplication().invokeLater(() -> detach(editor));
+                }
+            }
+        };
+        editor.getComponent().addContainerListener(takeover);
+        Disposer.register(panel, () -> editor.getComponent().removeContainerListener(takeover));
         editor.getComponent().revalidate();
         editor.getComponent().repaint();
     }
@@ -115,6 +126,11 @@ public final class CodeScrollManager implements Disposable {
                 if (!editor.isDisposed()) attach(editor);
             }
         });
+    }
+
+    /** Repaints every minimap, for overlay switches that need no new raster. */
+    public void repaintAll() {
+        for (MinimapPanel panel : panels.values()) panel.repaint();
     }
 
     /** Applies a width change to every minimap in place. */

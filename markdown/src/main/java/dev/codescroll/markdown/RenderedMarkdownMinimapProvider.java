@@ -39,7 +39,8 @@ public final class RenderedMarkdownMinimapProvider implements MarkdownBrowserPre
             handler = data -> {
                 if (!disposed && id.equals(data)) {
                     CodeScrollSettings.State state = CodeScrollSettings.getInstance().getState();
-                    pipe.send(CONTROL, id + (state.enabled && state.showRenderedMarkdown ? ":on" : ":off"));
+                    pipe.send(CONTROL, id + (state.enabled && state.showRenderedMarkdown ? ":on" : ":off")
+                            + (state.markdownSyncSource ? ":sync" : ":nosync"));
                 }
                 return false;
             };

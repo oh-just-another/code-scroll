@@ -79,6 +79,10 @@ public final class MarkerScanner {
 
     public record Marker(int offset, String label, boolean declaration) {}
 
+    /** Section markers that only count at the start of a comment, never inside prose or Javadoc. */
+    private static final Set<String> STRUCTURAL = Set.of("region", "endregion", "mark");
+    private static final Pattern HASH_DIRECTIVE = Pattern.compile("^\\s*#(?:region|endregion|pragma)\\b");
+
     private MarkerScanner() {}
 
     public static List<Marker> scan(CharSequence text, String markerWords, boolean methods,
@@ -100,6 +104,19 @@ public final class MarkerScanner {
     public static List<Marker> scan(CharSequence text, String markerWords, boolean methods,
                                     String methodNames, String methodAnnotations, String markerRegex,
                                     boolean markdown, int maxMarkers, Runnable checkCanceled) {
+        return scan(text, markerWords, methods, methodNames, methodAnnotations, markerRegex, markdown, true,
+                maxMarkers, checkCanceled);
+    }
+
+    /**
+     * @param hashComments whether {@code #} starts a comment (Python, shell, YAML...). When false (C-family,
+     *                     JavaScript, CSS), only {@code #region}, {@code #endregion} and {@code #pragma}
+     *                     directives at the start of a line count, so {@code #id} selectors and
+     *                     {@code this.#field} are not comments.
+     */
+    public static List<Marker> scan(CharSequence text, String markerWords, boolean methods,
+                                    String methodNames, String methodAnnotations, String markerRegex,
+                                    boolean markdown, boolean hashComments, int maxMarkers, Runnable checkCanceled) {
         if (maxMarkers < 0) throw new IllegalArgumentException("maxMarkers must be nonnegative");
         if (text == null) throw new IllegalArgumentException("Text is required");
         int cap = Math.min(MAX_MARKERS, maxMarkers);
@@ -113,16 +130,21 @@ public final class MarkerScanner {
         int[] signatureOffsets = new int[2048];
         int signatureLines = 0;
         List<String> words = new ArrayList<>();
+        Set<String> structural = new HashSet<>();
         if (markerWords != null) {
             for (String word : markerWords.substring(0, Math.min(markerWords.length(), 4096)).split(",")) {
                 word = word.trim();
-                if (!word.isEmpty()) words.add(Pattern.quote(word));
+                if (word.isEmpty()) continue;
+                // A word configured in capitals (TODO, MARK) is matched case-sensitively: "mark as dirty" is prose.
+                boolean capitals = word.equals(word.toUpperCase(java.util.Locale.ROOT)) && word.chars().anyMatch(Character::isLetter);
+                words.add((capitals ? "(?-i:" : "(?i:") + Pattern.quote(word) + ")");
+                if (STRUCTURAL.contains(word.toLowerCase(java.util.Locale.ROOT))) structural.add(word.toLowerCase(java.util.Locale.ROOT));
                 if (words.size() == 128) break;
             }
         }
         Pattern markers = words.isEmpty() ? null : Pattern.compile(
                 "(?<![\\p{L}\\p{N}_])(?:" + String.join("|", words) + ")(?![\\p{L}\\p{N}_])",
-                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+                Pattern.UNICODE_CASE);
         List<Marker> result = new ArrayList<>();
         int limit = Math.min(text.length(), MAX_INPUT);
         int offset = 0;
@@ -192,7 +214,9 @@ public final class MarkerScanner {
                             code.setCharAt(++i, ' ');
                             comments.setCharAt(i, '*');
                             commentChars[i] = true;
-                        } else if ((c == '/' && next == '/') || c == '#') {
+                        } else if ((c == '/' && next == '/') || (c == '#' && (hashComments
+                                ? (i == 0 || Character.isWhitespace(line.charAt(i - 1)))
+                                : line.substring(0, i).isBlank() && HASH_DIRECTIVE.matcher(line).find()))) {
                             for (int j = i; j < line.length(); j++) {
                                 code.setCharAt(j, ' ');
                                 comments.setCharAt(j, line.charAt(j));
@@ -259,6 +283,8 @@ public final class MarkerScanner {
                     if (markers != null && result.size() < cap) {
                         Matcher marker = markers.matcher(comments);
                         while (result.size() < cap && marker.find()) {
+                            if (structural.contains(marker.group().toLowerCase(java.util.Locale.ROOT))
+                                    && !atCommentStart(comments, commentChars, marker.start())) continue;
                             result.add(new Marker(offset + marker.start(), line.substring(marker.start()).stripTrailing(), false));
                         }
                     }
@@ -288,6 +314,15 @@ public final class MarkerScanner {
             if (offset < limit && text.charAt(offset) == '\n') offset++;
         }
         return List.copyOf(result);
+    }
+
+    /** Whether only comment openers ({@code // /* * # ! -}) and spaces precede {@code index} in its comment. */
+    private static boolean atCommentStart(CharSequence comments, boolean[] commentChars, int index) {
+        for (int i = index - 1; i >= 0 && commentChars[i]; i--) {
+            char c = comments.charAt(i);
+            if (!Character.isWhitespace(c) && "/*#!-".indexOf(c) < 0) return false;
+        }
+        return true;
     }
 
     private static List<String> filters(String value) {

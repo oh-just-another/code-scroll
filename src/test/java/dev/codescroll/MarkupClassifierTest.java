@@ -33,4 +33,13 @@ class MarkupClassifierTest {
         assertEquals(OTHER, classify("INJECTED_LANGUAGE_FRAGMENT", false, null, null, false));
         assertEquals(OTHER, classify(null, false, null, null, false));
     }
+
+    @Test
+    void errorsAreSeparatedFromWarningsByHighlighterLayer() {
+        assertEquals(true, MarkupClassifier.isError(5000));
+        assertEquals(true, MarkupClassifier.isError(5100));
+        assertEquals(false, MarkupClassifier.isError(5500));
+        assertEquals(false, MarkupClassifier.isError(4000));
+        assertEquals(false, MarkupClassifier.isError(3000));
+    }
 }

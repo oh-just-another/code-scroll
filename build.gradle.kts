@@ -36,7 +36,7 @@ intellijPlatform {
         name = "Code Scroll"
         ideaVersion { sinceBuild = "253"; untilBuild = provider { null } }
     }
-    buildSearchableOptions = false
+    buildSearchableOptions = true
     pluginVerification {
         ides {
             val paths = providers.gradleProperty("verifyIdePaths").orNull
@@ -49,4 +49,6 @@ intellijPlatform {
 // Optional: ./gradlew runIde -PopenPath=/path/to/project opens that path in the sandbox IDE.
 tasks.named<org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask>("runIde") {
     providers.gradleProperty("openPath").orNull?.let { args(it) }
+    // Optional: -PjcefDebugPort=9222 exposes JCEF pages (Markdown preview) to Chrome DevTools.
+    providers.gradleProperty("jcefDebugPort").orNull?.let { jvmArgs("-Dide.browser.jcef.debug.port=$it") }
 }

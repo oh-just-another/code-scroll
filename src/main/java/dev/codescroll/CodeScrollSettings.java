@@ -58,7 +58,7 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
     public static final class State {
         public boolean enabled = true;
         public boolean leftAligned = false;
-        public boolean fit = true;
+        public boolean fit = false;
         public boolean syntaxColors = true;
         public boolean showMarkers = true;
         public boolean showMethods = true;
@@ -102,21 +102,28 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
         public String declarationLabelColor = "";
         /** Strength of minimap text against the editor background, in percent. */
         public int textIntensity = 70;
-        public int viewportOpacity = 35;
+        public int viewportOpacity = 38;
         public int viewportBorderOpacity = 110;
-        public int viewportBorderWidth = 1;
+        public int viewportBorderWidth = 0;
         public boolean showBookmarks = true;
         public boolean showVcs = true;
+        /** Master switch for error/warning marks; the two below select severities. */
         public boolean showDiagnostics = true;
+        public boolean showErrors = true;
+        public boolean showWarnings = true;
         public boolean showSearch = true;
         public boolean fullLineDiagnostics = false;
         public boolean fullLineMarkup = false;
-        public String methodNames = "*";
+        // Methods are opt-in: labelling every method buries the code under labels. Types are always labelled.
+        public String methodNames = "";
         public String methodAnnotations = "";
         public String markerRegex = "";
         public int markerFontSize = 10;
         public boolean showRenderedMarkdown = true;
+        /** Navigating with the rendered Markdown map also scrolls the source editor. */
+        public boolean markdownSyncSource = true;
         public boolean previewWheel = false;
+        public boolean previewLineNumbers = true;
 
         public int widthFor(EditorKind kind) {
             if (kind == null) return width;
@@ -149,7 +156,7 @@ public final class CodeScrollSettings implements PersistentStateComponent<CodeSc
             if (markerWords == null) markerWords = "";
             if (renderStyle == null) renderStyle = RenderStyle.CLEAN;
             if (clickTiming == null) clickTiming = ClickTiming.DOWN;
-            if (methodNames == null) methodNames = "*";
+            if (methodNames == null) methodNames = "";
             if (methodAnnotations == null) methodAnnotations = "";
             if (markerRegex == null) markerRegex = "";
             try {
