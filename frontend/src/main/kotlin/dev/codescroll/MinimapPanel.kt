@@ -92,6 +92,11 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
     private val previewTimer = timer(max(10, settings.hoverDelayMs)) { showPreview() }
     private val scrollRender = timer(30) { submitRender() }
     private var renderTask: Future<*>? = null
+    /** Lines with an occurrence of the selected text (#119), found in the background. */
+    private var occurrences = IntArray(0)
+    private var occurrenceTask: Future<*>? = null
+    private val occurrenceKey = Any()
+    private val occurrenceTimer = timer(150) { findOccurrences() }
     /** A scroll needed a new raster while one was still being rendered; render again when it lands. */
     private var renderAgain = false
     /** Labels depend only on text and label settings, not on the scroll position: reuse them. */
@@ -137,7 +142,10 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
             override fun caretPositionChanged(event: CaretEvent) = repaint()
         }, this)
         editor.selectionModel.addSelectionListener(object : SelectionListener {
-            override fun selectionChanged(e: SelectionEvent) = repaint()
+            override fun selectionChanged(e: SelectionEvent) {
+                occurrenceTimer.restart()
+                repaint()
+            }
         }, this)
         // Diagnostics, VCS ranges, bookmarks and search results arrive without document events.
         listenToMarkup(editor.markupModel)
@@ -354,6 +362,7 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
         val background = scheme.defaultBackground.rgb
         val textless = textless()
         val accurate = s.renderStyle == CodeScrollSettings.RenderStyle.ACCURATE
+        val dimComments = s.dimComments
         val intensity = s.textIntensity
         // The editor's incremental highlighter already holds lexer state for the whole document.
         val highlighter = if (s.syntaxColors) (editor as? EditorEx)?.highlighter else null
@@ -377,7 +386,7 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
             val document = editor.document
             val text = document.immutableCharSequence
             val stamp = document.modificationStamp
-            val colors = highlighter?.let { MapRaster.TokenColors(scheme, project, file) }
+            val colors = highlighter?.let { MapRaster.TokenColors(scheme, project, file, dimComments) }
             val image = MapRaster.rasterize(
                 document, text, device, rasterWidth, charWidth, highlighter, colors, foreground, background,
                 accurate, intensity, textless,
@@ -423,6 +432,40 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
                     renderAgain = false
                     if (!covers(result.geometry, geometry(), height / 2.0)) scrollRender.restart()
                 }
+            }.submit(AppExecutorUtil.getAppExecutorService())
+    }
+
+    /** Finds the lines holding the selected text, bounded in length and count, off the EDT. */
+    private fun findOccurrences() {
+        occurrenceTask?.cancel(true)
+        val selected = editor.selectionModel.selectedText
+        if (disposed || !settings.showSelectionOccurrences || selected == null || selected.length !in OCCURRENCE_LENGTH ||
+            selected.isBlank() || '\n' in selected
+        ) {
+            if (occurrences.isNotEmpty()) {
+                occurrences = IntArray(0)
+                repaint()
+            }
+            return
+        }
+        occurrenceTask = ReadAction.nonBlocking<IntArray> {
+            val document = editor.document
+            val text = document.immutableCharSequence
+            val lines = ArrayList<Int>()
+            var from = 0
+            while (lines.size < MAX_OCCURRENCES) {
+                ProgressManager.checkCanceled()
+                val index = text.indexOf(selected, from)
+                if (index < 0) break
+                val line = document.getLineNumber(index)
+                if (lines.lastOrNull() != line) lines += line
+                from = index + selected.length
+            }
+            lines.toIntArray()
+        }.expireWith(this).coalesceBy(occurrenceKey)
+            .finishOnUiThread(ModalityState.any()) {
+                occurrences = it
+                repaint()
             }.submit(AppExecutorUtil.getAppExecutorService())
     }
 
@@ -479,6 +522,14 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
                 g.color = palette.selection
                 band(g, geometry, editor.document.getLineNumber(selection.selectionStart),
                     editor.document.getLineNumber(selection.selectionEnd) + 1, 0, width)
+            }
+            if (s.showSelectionOccurrences && occurrences.isNotEmpty()) {
+                g.color = palette.selection.withAlpha(170)
+                for (line in occurrences) {
+                    val y = geometry.y(line.toDouble())
+                    if (y < -geometry.scale || y > height) continue
+                    band(g, geometry, line, line + 1, 0, width)
+                }
             }
             paintMarkup(g, geometry, editor.markupModel, palette.caretLine)
             if (editor is EditorEx) paintMarkup(g, geometry, editor.filteredDocumentMarkupModel, palette.caretLine)
@@ -634,6 +685,13 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
                         g.color = if (s.fullLineDiagnostics) stripe.withAlpha(110) else stripe
                         if (s.fullLineDiagnostics) band(g, geometry, top, bottom, 0, width)
                         else band(g, geometry, top, bottom, farEdge, 4)
+                    }
+                    MarkupClassifier.Kind.BREAKPOINT -> {
+                        if (!s.showBreakpoints) continue
+                        g.color = highlighter.getTextAttributes(scheme)?.backgroundColor ?: stripe ?: BREAKPOINT_COLOR
+                        val y = geometry.y(top.toDouble()).toInt()
+                        val x = if (s.leftAligned) width - 7 else 1
+                        g.fillOval(x, y - 1, 6, 6)
                     }
                     MarkupClassifier.Kind.OTHER -> {
                         val color = background ?: stripe ?: continue
@@ -855,8 +913,9 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
     override fun dispose() {
         disposed = true
         generation++
-        listOf(debounce, markupRepaint, revealTimer, collapseTimer, previewTimer, scrollRender).forEach { it.stop() }
+        listOf(debounce, markupRepaint, revealTimer, collapseTimer, previewTimer, scrollRender, occurrenceTimer).forEach { it.stop() }
         renderTask?.cancel(true)
+        occurrenceTask?.cancel(true)
         editor.component.removeComponentListener(editorResize)
         if (oldScrollbarPolicy != -1 && editor is EditorEx && !editor.isDisposed) {
             editor.scrollPane.verticalScrollBarPolicy = oldScrollbarPolicy
@@ -874,6 +933,10 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
         const val COLLAPSED_WIDTH = 8
         const val RESIZE_EDGE = 5
         const val QUICK_HIDE_SIZE = 12
+        val BREAKPOINT_COLOR = Color(0xDB, 0x5C, 0x5C)
+        /** Selections outside this length are not searched for occurrences. */
+        val OCCURRENCE_LENGTH = 2..200
+        const val MAX_OCCURRENCES = 2000
 
         fun timer(delay: Int, action: () -> Unit) = Timer(delay) { action() }.apply { isRepeats = false }
 

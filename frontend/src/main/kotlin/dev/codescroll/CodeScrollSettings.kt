@@ -87,6 +87,11 @@ class CodeScrollSettings : PersistentStateComponent<CodeScrollSettings.State> {
         var fullLineDiagnostics: Boolean = false,
         var showVcs: Boolean = true,
         var showBookmarks: Boolean = true,
+        var showBreakpoints: Boolean = true,
+        /** Highlight every occurrence of the selected text on the map. */
+        var showSelectionOccurrences: Boolean = true,
+        /** Draw comments fainter than code on the map. */
+        var dimComments: Boolean = false,
         var showSearch: Boolean = true,
         var fullLineMarkup: Boolean = false,
         var showMarkers: Boolean = true,

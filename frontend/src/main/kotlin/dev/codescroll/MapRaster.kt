@@ -1,7 +1,9 @@
 package dev.codescroll
 
 import com.intellij.lang.Language
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.highlighter.EditorHighlighter
 import com.intellij.openapi.fileTypes.SyntaxHighlighter
@@ -18,6 +20,25 @@ import kotlin.math.min
 
 /** Background rasterization of document lines; runs inside a read action, never on the EDT. */
 internal object MapRaster {
+    private val COMMENT_KEYS = setOf(
+        DefaultLanguageHighlighterColors.LINE_COMMENT, DefaultLanguageHighlighterColors.BLOCK_COMMENT,
+        DefaultLanguageHighlighterColors.DOC_COMMENT,
+    )
+    /** Dimmed comments keep this share (of 256) of their color over the background. */
+    private const val COMMENT_STRENGTH = 96
+    private const val ALPHA = 0xff shl 24
+
+    /** Whether a key is, or falls back to, one of the default comment keys. */
+    private fun isComment(key: TextAttributesKey): Boolean {
+        var current: TextAttributesKey? = key
+        var depth = 0
+        while (current != null && depth++ < 10) {
+            if (current in COMMENT_KEYS) return true
+            current = current.fallbackAttributeKey
+        }
+        return false
+    }
+
     /** Bounds syntax-coloring work per frame; later samples fall back to the default foreground. */
     private const val MAX_TOKENS = 200_000
     /** Lines sampled per raster row when several share it; their coverage is averaged (antialiasing). */
@@ -129,7 +150,10 @@ internal object MapRaster {
      * and layered languages keep their colors) instead of the editor highlighter's attribute cache, which is a
      * plain map the EDT fills concurrently.
      */
-    class TokenColors(private val scheme: EditorColorsScheme, private val project: Project?, private val file: VirtualFile?) {
+    class TokenColors(
+        private val scheme: EditorColorsScheme, private val project: Project?, private val file: VirtualFile?,
+        private val dimComments: Boolean = false,
+    ) {
         private val highlighters = HashMap<Language, SyntaxHighlighter?>()
         private val colors = HashMap<IElementType, Int>()
 
@@ -141,10 +165,13 @@ internal object MapRaster {
                 SyntaxHighlighterFactory.getSyntaxHighlighter(type.language, project, file)
                     ?: file?.let { SyntaxHighlighterFactory.getSyntaxHighlighter(it.fileType, project, it) }
             }
+            val keys = highlighter?.getTokenHighlights(type).orEmpty()
             // Later keys are layered over earlier ones, as in the editor.
-            val rgb = highlighter?.getTokenHighlights(type)
-                ?.mapNotNull { scheme.getAttributes(it)?.foregroundColor?.rgb }
-                ?.lastOrNull() ?: -1
+            var rgb = keys.mapNotNull { scheme.getAttributes(it)?.foregroundColor?.rgb }.lastOrNull() ?: -1
+            if (dimComments && keys.any(::isComment)) {
+                val base = if (rgb == -1) scheme.defaultForeground.rgb else rgb
+                rgb = RasterRenderer.blend(base, scheme.defaultBackground.rgb, COMMENT_STRENGTH) or ALPHA
+            }
             colors[type] = rgb
             return rgb
         }

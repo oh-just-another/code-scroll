@@ -6,7 +6,7 @@ package dev.codescroll
  * conservative classification rather than an exact one.
  */
 object MarkupClassifier {
-    enum class Kind { DIAGNOSTIC, VCS, BOOKMARK, SEARCH, OTHER }
+    enum class Kind { DIAGNOSTIC, VCS, BOOKMARK, BREAKPOINT, SEARCH, OTHER }
 
     /** External names of EditorColors keys used by Find, Highlight Usages and identifier-under-caret. */
     val SEARCH_KEYS: Set<String> = setOf(
@@ -34,6 +34,7 @@ object MarkupClassifier {
         gutterIconClass: String?, hasStripeColor: Boolean, gutterIconText: String? = null,
     ): Kind = when {
         attributesKey != null && attributesKey in SEARCH_KEYS -> Kind.SEARCH
+        attributesKey.has("BREAKPOINT") || gutterIconClass.has("Breakpoint") || gutterIconText.has("Breakpoint") -> Kind.BREAKPOINT
         gutterIconClass.has("Bookmark") || lineMarkerClass.has("Bookmark") || gutterIconText.has("Bookmark") -> Kind.BOOKMARK
         // LineStatusMarkerRenderer in a local IDE, FrontendVcsGutterMarkRenderer in JetBrains Client.
         lineMarkerClass.has("LineStatus") || lineMarkerClass.has("Vcs") || (thinStripe && lineMarkerClass != null) -> Kind.VCS
@@ -41,5 +42,5 @@ object MarkupClassifier {
         else -> Kind.OTHER
     }
 
-    private fun String?.has(part: String) = this != null && contains(part)
+    private fun String?.has(part: String) = this != null && contains(part, ignoreCase = true)
 }

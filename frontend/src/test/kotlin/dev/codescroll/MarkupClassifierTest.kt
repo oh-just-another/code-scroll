@@ -1,6 +1,7 @@
 package dev.codescroll
 
 import dev.codescroll.MarkupClassifier.Kind.BOOKMARK
+import dev.codescroll.MarkupClassifier.Kind.BREAKPOINT
 import dev.codescroll.MarkupClassifier.Kind.DIAGNOSTIC
 import dev.codescroll.MarkupClassifier.Kind.OTHER
 import dev.codescroll.MarkupClassifier.Kind.SEARCH
@@ -55,5 +56,12 @@ class MarkupClassifierTest {
         val wrapper = "com.jetbrains.rdclient.daemon.highlighters.gutterMarks.FrontendAsyncGutterIconRenderer"
         assertEquals(BOOKMARK, classify(null, false, null, wrapper, false, "Bookmark 3 Bookmark"))
         assertEquals(OTHER, classify(null, false, null, wrapper, false, "Show usages"))
+    }
+
+    @Test
+    fun breakpointsAreRecognizedByAttributesKeyRendererOrTooltip() {
+        assertEquals(BREAKPOINT, classify("BREAKPOINT_ATTRIBUTES", false, null, null, true))
+        assertEquals(BREAKPOINT, classify(null, false, null, "com.intellij.xdebugger.impl.breakpoints.BreakpointGutterIconRenderer", false))
+        assertEquals(BREAKPOINT, classify(null, false, null, "x.FrontendAsyncGutterIconRenderer", false, "Line breakpoint null"))
     }
 }

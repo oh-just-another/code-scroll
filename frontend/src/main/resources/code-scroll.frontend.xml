@@ -18,6 +18,11 @@
                 text="Toggle Code Scroll Minimap" description="Show or hide code minimaps">
             <add-to-group group-id="ViewMenu" anchor="last"/>
         </action>
+        <action id="CodeScroll.ToggleEditor" class="dev.codescroll.ToggleEditorMinimapAction"
+                text="Code Scroll in This Editor"
+                description="Show or hide the minimap in the current editor, even when minimaps are off globally">
+            <add-to-group group-id="ViewMenu" anchor="last"/>
+        </action>
         <action id="CodeScroll.DumpDiagnostics" class="dev.codescroll.DumpDiagnosticsAction"
                 text="Code Scroll: Dump Diagnostics"
                 description="Log what the minimap sees in this editor: highlighting, markup categories and renderers"/>

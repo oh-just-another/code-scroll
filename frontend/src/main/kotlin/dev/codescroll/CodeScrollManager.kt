@@ -20,6 +20,8 @@ class CodeScrollManager : Disposable {
     private val panels = HashMap<Editor, MinimapPanel>()
     /** Editors hidden with "Hide in This Editor"; weak so released editors are not retained. */
     private val suppressed: MutableSet<Editor> = Collections.newSetFromMap(WeakHashMap())
+    /** Editors shown with "Show in This Editor" although minimaps are off for them globally (#34). */
+    private val forced: MutableSet<Editor> = Collections.newSetFromMap(WeakHashMap())
     private var disposed = false
 
     fun attachLater(editor: Editor) = invokeLater { if (!editor.isDisposed) attach(editor) }
@@ -53,7 +55,9 @@ class CodeScrollManager : Disposable {
 
     private fun eligible(editor: Editor): Boolean {
         val s = CodeScrollSettings.current
-        if (!s.enabled || editor.isDisposed || editor.isOneLineMode || editor in suppressed) return false
+        if (editor.isDisposed || editor.isOneLineMode || editor in suppressed) return false
+        if (editor in forced) return true
+        if (!s.enabled) return false
         if (!showsKind(s, editor.editorKind)) return false
         val extension = FileDocumentManager.getInstance().getFile(editor.document)?.extension?.lowercase(Locale.ROOT)
             ?: return true
@@ -75,6 +79,20 @@ class CodeScrollManager : Disposable {
     }
 
     fun clearHidden() = suppressed.clear()
+
+    fun hasMinimap(editor: Editor) = editor in panels
+
+    /** Shows or hides the minimap in one editor, regardless of the global switch and editor-kind settings. */
+    fun toggle(editor: Editor) {
+        if (editor in panels) {
+            forced -= editor
+            hide(editor)
+        } else {
+            suppressed -= editor
+            forced += editor
+            attach(editor)
+        }
+    }
 
     /** Attaches to editors that do not have a minimap yet, without recreating existing ones. */
     fun attachExisting() = invokeLater { attachAll() }
@@ -101,6 +119,7 @@ class CodeScrollManager : Disposable {
         // Child panels remove their own listeners and UI, including on dynamic plugin unload.
         panels.clear()
         suppressed.clear()
+        forced.clear()
     }
 
     companion object {

@@ -74,6 +74,7 @@ class CodeScrollConfigurable : BoundSearchableConfigurable("Code Scroll", "dev.c
                 checkbox(w::fit, "Fit to editor height", "Squeeze long documents into the panel height instead of scrolling the map.")
                 checkbox(w::fill, "Fill editor height", "With Fit, stretch short documents to the full height.")
                 checkbox(w::syntaxColors, "Syntax colors", "Use the editor's syntax highlighting colors in the minimap.")
+                checkbox(w::dimComments, "Dim comments", "Draw comments fainter than code, so the code structure stands out.")
                 row("Render style:") {
                     comboBox(CodeScrollSettings.RenderStyle.entries).bindItem(w::renderStyle.toNullableProperty())
                         .comment("CLEAN draws solid strokes with a light row between lines; ACCURATE also shows capitals, ascenders and descenders.")
@@ -158,6 +159,8 @@ class CodeScrollConfigurable : BoundSearchableConfigurable("Code Scroll", "dev.c
                 }
                 checkbox(w::showVcs, "VCS changes", "Mark added, changed and deleted lines on the editor-facing edge.")
                 checkbox(w::showBookmarks, "Bookmarks", "Mark bookmarked lines.")
+                checkbox(w::showBreakpoints, "Breakpoints", "Mark lines with breakpoints on the editor-facing edge.")
+                checkbox(w::showSelectionOccurrences, "Occurrences of the selection", "Highlight every occurrence of the selected text on the map.")
                 checkbox(w::showSearch, "Search results and usages", "Highlight find results and highlighted usages.")
                 checkbox(w::fullLineMarkup, "Full-line other markup", "Draw remaining editor highlights across the whole line.")
                 checkbox(w::showMarkers, "Comment markers", "Label comments that contain the marker words or regex below.")

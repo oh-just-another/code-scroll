@@ -110,6 +110,14 @@ Gateway session is still pending.
 - Long files keep a coarse whole-document raster under the precise window, so
   fast drags never show a blank map while the window catches up.
 - Settings are indexed for the IDE's settings search.
+- Every occurrence of the selected text is highlighted on the map (up to 2,000
+  lines; selections of 2–200 characters on one line).
+- Breakpoints are marked on the editor-facing edge; comments can be dimmed so
+  the code structure stands out.
+- View | Code Scroll in This Editor shows or hides the map in one editor, even
+  when minimaps are off globally or for that editor kind.
+- Code Scroll: Dump Diagnostics (Find Action) logs what the map sees in an
+  editor, which helps with Remote Development (JetBrains Client).
 - Navigating with the rendered Markdown map also scrolls the source editor
   (can be turned off).
 - Overlay categories are inferred from public highlighter properties (attribute

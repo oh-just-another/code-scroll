@@ -2,6 +2,7 @@ package dev.codescroll
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbAwareToggleAction
 
@@ -19,6 +20,24 @@ class ToggleMinimapAction : DumbAwareAction() {
     override fun update(event: AnActionEvent) {
         event.presentation.text =
             if (CodeScrollSettings.current.enabled) "Disable Code Scroll Minimap" else "Enable Code Scroll Minimap"
+    }
+}
+
+/** Shows or hides the minimap in the current editor only, even when minimaps are off globally (#34). */
+class ToggleEditorMinimapAction : DumbAwareToggleAction() {
+    override fun getActionUpdateThread() = ActionUpdateThread.EDT
+
+    override fun update(event: AnActionEvent) {
+        super.update(event)
+        event.presentation.isEnabledAndVisible = event.getData(CommonDataKeys.EDITOR) != null
+    }
+
+    override fun isSelected(event: AnActionEvent): Boolean =
+        event.getData(CommonDataKeys.EDITOR)?.let(CodeScrollManager.getInstance()::hasMinimap) == true
+
+    override fun setSelected(event: AnActionEvent, state: Boolean) {
+        val editor = event.getData(CommonDataKeys.EDITOR) ?: return
+        if (CodeScrollManager.getInstance().hasMinimap(editor) != state) CodeScrollManager.getInstance().toggle(editor)
     }
 }
 
