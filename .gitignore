@@ -4,3 +4,4 @@ build/
 frontend/build/
 .idea/
 *.iml
+.kotlin/

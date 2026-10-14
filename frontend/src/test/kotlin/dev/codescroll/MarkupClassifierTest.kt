@@ -47,4 +47,13 @@ class MarkupClassifierTest {
         assertFalse(MarkupClassifier.isError(4000))
         assertFalse(MarkupClassifier.isError(3000))
     }
+
+    @Test
+    fun jetBrainsClientRenderersAreRecognized() {
+        // Remote Development: VCS ranges use a frontend renderer; gutter icons arrive in a generic wrapper.
+        assertEquals(VCS, classify(null, false, "com.intellij.platform.vcs.frontend.split.FrontendVcsGutterMarkRenderer", null, false))
+        val wrapper = "com.jetbrains.rdclient.daemon.highlighters.gutterMarks.FrontendAsyncGutterIconRenderer"
+        assertEquals(BOOKMARK, classify(null, false, null, wrapper, false, "Bookmark 3 Bookmark"))
+        assertEquals(OTHER, classify(null, false, null, wrapper, false, "Show usages"))
+    }
 }

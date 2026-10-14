@@ -18,6 +18,9 @@
                 text="Toggle Code Scroll Minimap" description="Show or hide code minimaps">
             <add-to-group group-id="ViewMenu" anchor="last"/>
         </action>
+        <action id="CodeScroll.DumpDiagnostics" class="dev.codescroll.DumpDiagnosticsAction"
+                text="Code Scroll: Dump Diagnostics"
+                description="Log what the minimap sees in this editor: highlighting, markup categories and renderers"/>
         <action id="CodeScroll.ToggleDiagnostics" class="dev.codescroll.ToggleDiagnosticsAction"
                 text="Toggle Code Scroll Diagnostics" description="Show or hide error and warning marks on code minimaps">
             <add-to-group group-id="ViewMenu" anchor="last"/>

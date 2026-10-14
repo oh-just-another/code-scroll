@@ -26,14 +26,17 @@ object MarkupClassifier {
      * @param lineMarkerClass class name of the gutter line-marker renderer
      * @param gutterIconClass class name of the gutter icon renderer
      * @param hasStripeColor whether the highlighter has an error-stripe color in the current scheme
+     * @param gutterIconText tooltip and accessible name of the gutter icon. In JetBrains Client (Remote
+     * Development) gutter icons arrive wrapped in a generic frontend renderer, so its class name says nothing.
      */
     fun classify(
         attributesKey: String?, thinStripe: Boolean, lineMarkerClass: String?,
-        gutterIconClass: String?, hasStripeColor: Boolean,
+        gutterIconClass: String?, hasStripeColor: Boolean, gutterIconText: String? = null,
     ): Kind = when {
         attributesKey != null && attributesKey in SEARCH_KEYS -> Kind.SEARCH
-        gutterIconClass.has("Bookmark") || lineMarkerClass.has("Bookmark") -> Kind.BOOKMARK
-        lineMarkerClass.has("LineStatus") || (thinStripe && lineMarkerClass != null) -> Kind.VCS
+        gutterIconClass.has("Bookmark") || lineMarkerClass.has("Bookmark") || gutterIconText.has("Bookmark") -> Kind.BOOKMARK
+        // LineStatusMarkerRenderer in a local IDE, FrontendVcsGutterMarkRenderer in JetBrains Client.
+        lineMarkerClass.has("LineStatus") || lineMarkerClass.has("Vcs") || (thinStripe && lineMarkerClass != null) -> Kind.VCS
         hasStripeColor && !thinStripe -> Kind.DIAGNOSTIC
         else -> Kind.OTHER
     }

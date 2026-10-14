@@ -182,6 +182,14 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
         addMouseMotionListener(mouse)
         addMouseWheelListener(mouse)
         if (settings.hideScrollbar && editor is EditorEx) oldScrollbarPolicy = editor.scrollPane.verticalScrollBarPolicy
+        // Highlighting and markup can arrive late (from the backend in Remote Development): report after a delay.
+        if (Diagnostics.automatic) {
+            var reports = 0
+            Timer(20_000) { event ->
+                if (disposed || editor.isDisposed || ++reports > 6) (event.source as Timer).stop()
+                else Diagnostics.log(editor)
+            }.apply { initialDelay = 15_000 }.start()
+        }
         invalidateMap()
     }
 
@@ -591,6 +599,7 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
                     highlighter.lineMarkerRenderer?.javaClass?.name,
                     highlighter.gutterIconRenderer?.javaClass?.name,
                     stripe != null,
+                    highlighter.gutterIconRenderer?.let { "${it.tooltipText} ${it.accessibleName}" },
                 )
                 val background = if (kind == MarkupClassifier.Kind.SEARCH || kind == MarkupClassifier.Kind.OTHER) {
                     highlighter.getTextAttributes(scheme)?.backgroundColor
@@ -614,8 +623,9 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
                         g.fillPolygon(intArrayOf(tip, tip + 6 * direction, tip), intArrayOf(y - 4, y + 1, y + 6), 3)
                     }
                     MarkupClassifier.Kind.VCS -> {
-                        if (!s.showVcs || stripe == null) continue
-                        g.color = stripe
+                        if (!s.showVcs) continue
+                        // JetBrains Client's VCS ranges may carry no stripe color; use the scheme's change color.
+                        g.color = stripe ?: scheme.getColor(EditorColors.MODIFIED_LINES_COLOR) ?: continue
                         band(g, geometry, top, bottom, nearEdge, 3)
                     }
                     MarkupClassifier.Kind.DIAGNOSTIC -> {
