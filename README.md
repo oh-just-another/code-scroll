@@ -1,7 +1,8 @@
 # Code Scroll
 
 MIT-licensed code minimap for IntelliJ-based IDEs. Runtime dependencies are
-limited to Java/Swing and the host JetBrains Platform. No image libraries,
+limited to the host JetBrains Platform (Swing, and the platform's own Kotlin
+standard library — none is bundled). No image libraries,
 network clients, bytecode agents or third-party runtime JARs are bundled.
 
 ## Features
@@ -51,8 +52,11 @@ context menu. No default shortcut is assigned.
 
 ## Build And Test
 
-Use JDK 21+ for the baseline or JDK 25 for current 2026 IDE distributions.
-The bytecode/API target remains Java 21. Gradle is supplied by the wrapper.
+The plugin is written in Kotlin (2.3 compiler, 2.2 language/API level). Use
+JDK 25: 2026.2 IDEs run on JBR 25, and the IntelliJ Platform Gradle Plugin sets
+the matching JVM target. Gradle is supplied by the wrapper. Add
+`-PlocalIdePath=<IDE>/Contents` to build against an installed IDE instead of
+downloading the SDK.
 
 ```sh
 ./gradlew :frontend:test buildPlugin verifyPluginStructure verifyPlugin
@@ -68,13 +72,12 @@ regression fixtures and manual acceptance scenarios.
 
 ## Compatibility And Current Limits
 
-The declared baseline is IntelliJ Platform **2025.3 / build 253**, without a hard
-upper build ceiling. Future IDE releases require separate verification.
-The plugin builds against IDEA 2025.3.6.1. Plugin Verifier reports it compatible
-with that build, IDEA 2026.2.3 and WebStorm 2026.3 EAP (263.6800.25). The only
-reported item is one experimental Markdown preview API used by the optional
-Markdown module. A WebStorm EAP sandbox starts with the plugin without errors;
-the full manual GUI checklist and a real Gateway session are still pending.
+The declared baseline is IntelliJ Platform **2026.2 / build 262** (also the base
+of the current Android Studio), without a hard upper build ceiling. Future IDE
+releases require separate verification. The plugin builds against IDEA 2026.2.3.
+See TESTING.md for the IDEs verified so far; the only reported item is one
+experimental Markdown preview API used by the optional Markdown module. A real
+Gateway session is still pending.
 
 - The map uses logical document lines rather than visual wrap/fold rows.
 - Declaration detection uses conservative text heuristics, not language-specific PSI.
@@ -92,7 +95,8 @@ the full manual GUI checklist and a real Gateway session are still pending.
 - `region`, `endregion` and `MARK` only count at the start of a comment; marker
   words written in capitals are case-sensitive. `#` starts a comment only in
   languages that use it (not in C-family, JavaScript/TypeScript or CSS files,
-  except `#region`/`#endregion`/`#pragma` directives).
+  except `#region`/`#endregion`/`#pragma` directives). HTML/XML `<!-- -->`
+  comments carry markers too; labels drop trailing `*/` and `-->`.
 - Errors and warnings can be hidden separately (settings, minimap context menu
   and View | Toggle Code Scroll Diagnostics). Methods are not labelled unless
   the "Method names" filter selects them; classes and types always are.

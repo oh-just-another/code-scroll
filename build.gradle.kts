@@ -3,6 +3,7 @@ import org.jetbrains.intellij.platform.gradle.tasks.aware.SplitModeAware
 plugins {
     java
     id("org.jetbrains.intellij.platform") version "2.19.0"
+    id("org.jetbrains.kotlin.jvm") version "2.3.0" apply false
 }
 
 group = "dev.codescroll"
@@ -19,14 +20,12 @@ dependencies {
     intellijPlatform {
         val localPath = providers.gradleProperty("localIdePath").orNull
         if (localPath != null) local(localPath)
-        else intellijIdea(providers.gradleProperty("platformVersion").getOrElse("2025.3.6.1"))
+        else intellijIdea(providers.gradleProperty("platformVersion").getOrElse("2026.2.3"))
         pluginVerifier()
     }
 }
 
 sourceSets.main { java.setSrcDirs(emptyList<String>()) }
-java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
-tasks.withType<JavaCompile>().configureEach { options.release = 21 }
 tasks.processResources { from("LICENSE") { into("META-INF") } }
 
 intellijPlatform {
@@ -34,7 +33,8 @@ intellijPlatform {
     pluginInstallationTarget = SplitModeAware.PluginInstallationTarget.FRONTEND
     pluginConfiguration {
         name = "Code Scroll"
-        ideaVersion { sinceBuild = "253"; untilBuild = provider { null } }
+        // 2026.2 (262): the current stable platform, also the base of the current Android Studio.
+        ideaVersion { sinceBuild = "262"; untilBuild = provider { null } }
     }
     buildSearchableOptions = true
     pluginVerification {
@@ -46,9 +46,13 @@ intellijPlatform {
     }
 }
 
-// Optional: ./gradlew runIde -PopenPath=/path/to/project opens that path in the sandbox IDE.
+// Optional: ./gradlew runIde -PopenPath=/path/to/project[|/path/to/file] opens those paths in the sandbox IDE.
 tasks.named<org.jetbrains.intellij.platform.gradle.tasks.RunIdeTask>("runIde") {
-    providers.gradleProperty("openPath").orNull?.let { args(it) }
+    providers.gradleProperty("openPath").orNull?.let { args(it.split('|')) }
+    // Optional: -PtrustProjects=true skips the "Trust project?" dialog in the sandbox (automated smoke tests).
+    if (providers.gradleProperty("trustProjects").orNull == "true") jvmArgs("-Didea.trust.disabled=true")
+    // Optional: -PsandboxJvmArgs="-Dkey=value ..." passes extra JVM arguments to the sandbox IDE.
+    providers.gradleProperty("sandboxJvmArgs").orNull?.let { jvmArgs(it.split(' ').filter(String::isNotBlank)) }
     // Optional: -PjcefDebugPort=9222 exposes JCEF pages (Markdown preview) to Chrome DevTools.
     providers.gradleProperty("jcefDebugPort").orNull?.let { jvmArgs("-Dide.browser.jcef.debug.port=$it") }
 }

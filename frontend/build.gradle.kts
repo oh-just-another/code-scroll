@@ -1,5 +1,8 @@
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+
 plugins {
     java
+    id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.intellij.platform.module")
 }
 
@@ -11,17 +14,19 @@ repositories {
 dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    // The 253 IDE test bootstrap loads JUnit 4 rules even for Jupiter-only tests.
+    // The IDE test bootstrap loads JUnit 4 rules even for Jupiter-only tests.
     testRuntimeOnly("junit:junit:4.13.2")
 }
 
-java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
-tasks.withType<JavaCompile>().configureEach { options.release = 21 }
-sourceSets {
-    main {
-        java.setSrcDirs(listOf("../src/main/java"))
-        resources.setSrcDirs(listOf("src/main/resources"))
+// The IntelliJ Platform Gradle Plugin picks the JVM target the platform requires (Java 25 for 2026.2).
+kotlin {
+    compilerOptions {
+        // The platform's own Kotlin stdlib is used at runtime; stay within what 2026.2 ships.
+        apiVersion = KotlinVersion.KOTLIN_2_2
+        languageVersion = KotlinVersion.KOTLIN_2_2
+        // Keep platform interfaces' default methods where they are, instead of generating stubs that call
+        // (and so depend on) every deprecated or experimental default method of the interface.
+        freeCompilerArgs.add("-jvm-default=no-compatibility")
     }
-    test { java.setSrcDirs(listOf("../src/test/java")) }
 }
 tasks.test { useJUnitPlatform(); systemProperty("java.awt.headless", "true") }

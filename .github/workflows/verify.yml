@@ -33,7 +33,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           if [ "$TARGET" = baseline ]; then
-            VERSION=2025.3.6.1
+            VERSION=2026.2.3
           else
             VERSION=$(curl --fail --silent --show-error --retry 3 \
               "https://data.services.jetbrains.com/products/releases?code=IIU&latest=true&type=$TARGET" \

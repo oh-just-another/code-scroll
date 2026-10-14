@@ -44,6 +44,7 @@ public class GenerateFixtures {
         Files.writeString(directory.resolve("medium.ts"), typescript(), StandardCharsets.UTF_8);
         Files.writeString(directory.resolve("medium.py"), python(), StandardCharsets.UTF_8);
         Files.writeString(directory.resolve("medium.html"), html(), StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve("medium.cs"), csharp(), StandardCharsets.UTF_8);
         Files.writeString(directory.resolve("guide.md"), markdown("Code Scroll Guide", 21), StandardCharsets.UTF_8);
         Files.writeString(directory.resolve("notes.md"), markdown("Release Notes", 20), StandardCharsets.UTF_8);
         System.out.println("Fixtures generated in " + directory.toAbsolutePath());
@@ -128,6 +129,26 @@ public class GenerateFixtures {
             out.append("        if factor <= 0:\n            raise ValueError(\"factor must be positive\")\n");
             out.append("        return dataclasses.replace(self, amount=int(self.amount * factor))\n\n\n");
         }
+        return out.toString();
+    }
+
+    /** About 400 lines of C# with #region blocks, for Rider. */
+    private static String csharp() {
+        StringBuilder out = new StringBuilder("using System;\nusing System.Collections.Generic;\n\nnamespace CodeScroll.Fixtures\n{\n");
+        for (int c = 0; c < NAMES.length; c++) {
+            String name = NAMES[c];
+            out.append("    #region ").append(name).append("\n");
+            out.append("    /// <summary>").append(words(c, 8)).append("</summary>\n");
+            out.append("    public class ").append(name).append("Service\n    {\n");
+            out.append("        private readonly Dictionary<long, string> _cache = new();\n\n");
+            if (c % 3 == 0) out.append("        // TODO: ").append(words(c + 1, 5)).append("\n");
+            out.append("        public string? Load(long id) => _cache.TryGetValue(id, out var value) ? value : null;\n\n");
+            out.append("        public int Refresh(IEnumerable<string> items)\n        {\n            var count = 0;\n");
+            out.append("            foreach (var item in items)\n            {\n                if (item.Length > ").append(c + 3)
+                    .append(")\n                {\n                    _cache[count++] = item.Trim();\n                }\n            }\n");
+            out.append("            return count;\n        }\n    }\n    #endregion\n\n");
+        }
+        out.append("}\n");
         return out.toString();
     }
 
