@@ -5,6 +5,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <editorFactoryListener implementation="dev.codescroll.CodeScrollEditorListener"/>
         <postStartupActivity implementation="dev.codescroll.CodeScrollStartup"/>
+        <colorSettingsPage implementation="dev.codescroll.CodeScrollColorSettingsPage"/>
         <applicationConfigurable parentId="editor" id="dev.codescroll.settings"
                                  displayName="Code Scroll"
                                  instance="dev.codescroll.CodeScrollConfigurable"/>

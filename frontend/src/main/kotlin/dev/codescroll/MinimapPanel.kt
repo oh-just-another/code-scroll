@@ -4,11 +4,9 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.LogicalPosition
-import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsListener
@@ -474,15 +472,18 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
         val scheme = editor.colorsScheme
         val background = scheme.defaultBackground
         val foreground = scheme.defaultForeground
-        val selection = scheme.color(EditorColors.SELECTION_BACKGROUND_COLOR, foreground)
-        val caret = scheme.color(EditorColors.CARET_COLOR, foreground)
-        val marker = scheme.getAttributes(CodeInsightColors.TODO_DEFAULT_ATTRIBUTES)?.foregroundColor ?: caret
-        val declaration = scheme.getAttributes(DefaultLanguageHighlighterColors.FUNCTION_DECLARATION)?.foregroundColor ?: foreground
+        // Scheme-specific Code Scroll colors; each key falls back to the standard scheme color.
+        val selection = scheme.color(CodeScrollColors.SELECTION, foreground)
+        val viewport = scheme.color(CodeScrollColors.VIEWPORT, selection)
+        val viewportBorder = scheme.color(CodeScrollColors.VIEWPORT_BORDER, selection)
+        val caret = scheme.color(CodeScrollColors.CARET_LINE, foreground)
+        val marker = scheme.getAttributes(CodeScrollColors.MARKER_LABEL)?.foregroundColor ?: caret
+        val declaration = scheme.getAttributes(CodeScrollColors.DECLARATION_LABEL)?.foregroundColor ?: foreground
         val guide = scheme.color(EditorColors.INDENT_GUIDE_COLOR, foreground)
         return Palette(
             background,
-            CodeScrollSettings.color(s.viewportColor, selection, s.viewportOpacity),
-            CodeScrollSettings.color(s.viewportBorderColor, selection, s.viewportBorderOpacity),
+            CodeScrollSettings.color(s.viewportColor, viewport, s.viewportOpacity),
+            CodeScrollSettings.color(s.viewportBorderColor, viewportBorder, s.viewportBorderOpacity),
             CodeScrollSettings.color(s.caretLineColor, caret, 120),
             CodeScrollSettings.color(s.selectionColor, selection, 110),
             CodeScrollSettings.color(s.markerLabelColor, marker, 255),

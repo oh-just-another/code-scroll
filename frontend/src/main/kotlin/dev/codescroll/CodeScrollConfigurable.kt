@@ -1,9 +1,6 @@
 package dev.codescroll
 
-import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
-import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
@@ -93,21 +90,25 @@ class CodeScrollConfigurable : BoundSearchableConfigurable("Code Scroll", "dev.c
                 number(w::untypedWidth, "Untyped editors (px):", 40..300, "Width in editors without a file type.")
             }
             group("Colors") {
-                color(w::viewportColor, "Viewport:", { it.key(EditorColors.SELECTION_BACKGROUND_COLOR) },
+            row {
+                comment("By default every color follows the editor color scheme; each scheme can set its own values in " +
+                    "Settings | Editor | Color Scheme | Code Scroll. \"Custom\" below overrides all schemes.")
+            }
+                color(w::viewportColor, "Viewport:", { it.key(CodeScrollColors.VIEWPORT) },
                     "Fill of the visible-area frame. Follows the scheme's selection background unless Custom.")
                 number(w::viewportOpacity, "Viewport opacity:", 0..255, "Alpha of the frame fill; it brightens while hovered and dragged.")
-                color(w::viewportBorderColor, "Viewport border:", { it.key(EditorColors.SELECTION_BACKGROUND_COLOR) },
+                color(w::viewportBorderColor, "Viewport border:", { it.key(CodeScrollColors.VIEWPORT_BORDER) },
                     "Border of the visible-area frame. Follows the scheme's selection background unless Custom.")
                 number(w::viewportBorderOpacity, "Border opacity:", 0..255, "Alpha of the frame border.")
                 number(w::viewportBorderWidth, "Border width (px):", 0..8, "Thickness of the frame border; 0 hides it.")
-                color(w::caretLineColor, "Caret line:", { it.key(EditorColors.CARET_COLOR) },
+                color(w::caretLineColor, "Caret line:", { it.key(CodeScrollColors.CARET_LINE) },
                     "Line marking the caret position. Follows the scheme's caret color unless Custom.")
-                color(w::selectionColor, "Selection:", { it.key(EditorColors.SELECTION_BACKGROUND_COLOR) },
+                color(w::selectionColor, "Selection:", { it.key(CodeScrollColors.SELECTION) },
                     "Band marking selected lines. Follows the scheme's selection background unless Custom.")
-                color(w::markerLabelColor, "Marker labels:", { it.foreground(CodeInsightColors.TODO_DEFAULT_ATTRIBUTES) },
+                color(w::markerLabelColor, "Marker labels:", { it.foreground(CodeScrollColors.MARKER_LABEL) },
                     "TODO, region and custom marker labels. Follows the scheme's TODO color unless Custom.")
                 color(w::declarationLabelColor, "Declaration labels:",
-                    { it.foreground(DefaultLanguageHighlighterColors.FUNCTION_DECLARATION) },
+                    { it.foreground(CodeScrollColors.DECLARATION_LABEL) },
                     "Class and method labels. Follows the scheme's function declaration color unless Custom.")
             }
             group("Navigation and Preview") {
