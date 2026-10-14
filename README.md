@@ -1,8 +1,37 @@
-# Code Scroll
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo.svg" width="112" height="112" alt="Code Scroll logo">
+</picture>
+
+<h1>Code Scroll</h1>
+
+<p><b>Oh, just another code minimap for JetBrains IDEs.</b></p>
+
+<p>
+  <a href="https://github.com/oh-just-another/code-scroll/actions/workflows/verify.yml"><img src="https://github.com/oh-just-another/code-scroll/actions/workflows/verify.yml/badge.svg" alt="Verify Plugin"></a>
+  <img src="https://img.shields.io/badge/IntelliJ%20Platform-2026.2%2B-4E8CFF" alt="IntelliJ Platform 2026.2+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111" alt="MIT License"></a>
+</p>
+
+<p>
+  <a href="#installation">Installation</a> ·
+  <a href="#using-the-minimap">Using the Minimap</a> ·
+  <a href="#settings">Settings</a> ·
+  <a href="#building">Building</a>
+</p>
+
+</div>
 
 Code Scroll adds a minimap to the editors of JetBrains IDEs. It shows the whole file in syntax colors next to the
 code, marks errors, changes and bookmarks on it, and lets you scroll by dragging the frame that shows where you are.
 It works in IntelliJ IDEA, WebStorm, Rider, Android Studio and other IDEs from version 2026.2.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img src="docs/screenshot-light.png" alt="Code Scroll minimap next to a Kotlin file, with region labels and the frame of the visible area">
+</picture>
 
 ## Installation
 
