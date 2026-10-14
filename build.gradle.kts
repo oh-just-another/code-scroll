@@ -37,6 +37,19 @@ intellijPlatform {
         ideaVersion { sinceBuild = "262"; untilBuild = provider { null } }
     }
     buildSearchableOptions = true
+    // Keys and the token come only from the environment: GitHub secrets in CI, never files in the repository.
+    signing {
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+        // 1.1.0-eap.1 goes to the "eap" channel, 1.1.0 to the default one.
+        channels = providers.provider {
+            listOf(version.toString().substringAfter('-', "").substringBefore('.').ifEmpty { "default" })
+        }
+    }
     pluginVerification {
         ides {
             val paths = providers.gradleProperty("verifyIdePaths").orNull
