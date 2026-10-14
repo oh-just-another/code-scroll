@@ -12,6 +12,11 @@ repositories {
 }
 
 dependencies {
+    // Each module declares the platform itself: resolving the root project's platform from here breaks IDE sync.
+    intellijPlatform {
+        val localPath = providers.gradleProperty("localIdePath").orNull
+        if (localPath != null) local(localPath) else intellijIdea(providers.gradleProperty("platformVersion").get())
+    }
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     // The IDE test bootstrap loads JUnit 4 rules even for Jupiter-only tests.

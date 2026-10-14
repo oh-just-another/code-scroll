@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
-const {sampleIndices, viewport, mapHeight, scrollTarget, wheelPixels, bitmapSize, textRows, mount} =
+const {sampleIndices, viewport, mapHeight, scrollTarget, wheelPixels, bitmapSize, textRows, textAlpha, lineSpans, mount} =
     require("../../main/resources/dev/codescroll/markdown/rendered-minimap.js");
 
 test("bounded sampling spans the document and includes both endpoints", () => {
@@ -59,6 +59,16 @@ test("text blocks become thin lines without exceeding the map space they occupy"
     assert.equal(textRows(110, 6), 2);
     assert.equal(textRows(110, 1), 1);
     assert.equal(textRows(100000, 10000), 64);
+});
+
+test("text rects merge into one span per line at the line's real extent", () => {
+    const rect = (top, left, width, height = 20) => ({top, left, width, height});
+    // A wrapped paragraph: a bold word and a link share the first line, the second line is short.
+    assert.deepEqual(lineSpans([rect(0, 10, 100), rect(2, 110, 40, 16), rect(0, 150, 200), rect(22, 10, 80)]),
+        [{top: 0, height: 20, left: 10, width: 340}, {top: 22, height: 20, left: 10, width: 80}]);
+    assert.deepEqual(lineSpans([rect(22, 10, 80), rect(0, 10, 100)]).map(line => line.top), [0, 22]);
+    assert.deepEqual(lineSpans([rect(0, 10, 0), rect(0, 10, 50, 0)]), []);
+    assert.equal(lineSpans(Array.from({length: 100}, (_, i) => rect(i * 22, 10, 50)), 64).length, 64);
 });
 
 test("canvas allocation is independent of document length and caps DPR", () => {
@@ -291,4 +301,69 @@ test("injected script isolates extension tokens and installs just one page-scope
     assert.equal(b.win.__codeScrollMarkdownMinimap, undefined);
     assert.equal(b.canvas.parentNode, null);
     assert.equal(b.intervals.size, 0);
+});
+
+test("measured text lines are drawn at their real length instead of full-width rows", () => {
+    const b = browser();
+    // Every block reports one long line and one short line; the page is 800 px wide like the window.
+    b.doc.createRange = () => ({selectNodeContents() {}, getClientRects: () => [
+        {top: 0, left: 20, width: 700, height: 20}, {top: 22, left: 20, width: 140, height: 20}]});
+    const minimap = mount(b.win, "test");
+    b.tick(0);
+    const widths = new Set(b.fills.slice(1).map(fill => Math.round(fill[2])));
+    assert.ok(widths.has(Math.round(140 / 700 * 86)), "short line keeps its length");
+    assert.ok(widths.has(Math.round(700 / 700 * 86)), "long line spans the content");
+    minimap.dispose();
+});
+
+test("text intensity drives contrast, with headings strongest", () => {
+    assert.deepEqual(textAlpha(100), {text: 0.75, header: 0.95, heading: 1});
+    const normal = textAlpha(70);
+    assert.ok(normal.text > 0.5 && normal.header > normal.text && normal.heading > normal.header);
+    assert.deepEqual(textAlpha(5), textAlpha(20));
+});
+
+test("dragging the left edge resizes the map and reports the width; the IDE can set and lock it", () => {
+    const b = browser();
+    const posted = [];
+    b.win.__IntelliJTools.messagePipe.post = (type, data) => posted.push([type, data]);
+    const minimap = mount(b.win, "test");
+    b.tick(0);
+    // The canvas starts at x = 20 in the test layout, so x = 22 is on its left edge.
+    b.canvas.emit("pointerdown", {button: 0, pointerId: 3, clientX: 22, clientY: 100});
+    b.canvas.emit("pointermove", {pointerId: 3, clientX: -28, clientY: 100});
+    assert.equal(b.canvas.style.width, "146px");
+    assert.equal(b.root.style.paddingRight, "170px");
+    assert.equal(b.root.scrollTop, 0, "resizing does not scroll");
+    b.canvas.emit("pointerup", {pointerId: 3});
+    assert.deepEqual(posted.filter(([type]) => type === "code-scroll.markdown.resized"), [["code-scroll.markdown.resized", "test:146"]]);
+    minimap.configure(500, 70, true);
+    assert.equal(b.canvas.style.width, "300px");
+    b.canvas.emit("pointerdown", {button: 0, pointerId: 4, clientX: 22, clientY: 100});
+    assert.ok(b.root.scrollTop > 0, "a locked map treats the edge as an ordinary click");
+    minimap.dispose();
+});
+
+test("map navigation asks the IDE to scroll the source to the element at the top, once it pauses", () => {
+    const b = browser();
+    const posted = [];
+    b.win.__IntelliJTools.messagePipe.post = (type, data) => posted.push([type, data]);
+    const element = (from, top, height) => ({getAttribute: () => from + ".." + (from + 10),
+        getBoundingClientRect: () => ({top, bottom: top + height, height})});
+    b.doc.querySelector = () => ({content: "md-src-pos"});
+    b.doc.body.querySelectorAll = () => [element(0, -900, 100), element(120, -40, 80), element(300, 40, 20)];
+    const minimap = mount(b.win, "test");
+    b.tick(0);
+    b.canvas.emit("pointerdown", {button: 0, pointerId: 7, clientY: 250});
+    b.canvas.emit("pointermove", {pointerId: 7, clientY: 260});
+    assert.equal(posted.filter(([type]) => type === "code-scroll.markdown.source").length, 0, "nothing while dragging");
+    const pending = [...b.timers.values()];
+    b.timers.clear();
+    pending.forEach(fn => fn());
+    assert.deepEqual(posted.filter(([type]) => type === "code-scroll.markdown.source"), [["code-scroll.markdown.source", "test:120"]]);
+    assert.equal(minimap.guardsEcho(), true, "the IDE's scroll back to the source line is ignored for a moment");
+    minimap.setSync(false);
+    b.canvas.emit("pointermove", {pointerId: 7, clientY: 300});
+    assert.equal(b.timers.size, 0, "no source scrolling with sync off");
+    minimap.dispose();
 });

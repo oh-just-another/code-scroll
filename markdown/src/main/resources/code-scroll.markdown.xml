@@ -6,4 +6,19 @@
     <extensions defaultExtensionNs="org.intellij.markdown">
         <browserPreviewExtensionProvider implementation="dev.codescroll.markdown.RenderedMarkdownMinimapProvider"/>
     </extensions>
+    <actions>
+        <!-- A submenu in the preview's own context menu: the IDE shows that menu on any right click in the preview. -->
+        <group id="CodeScroll.MarkdownPreview" text="Code Scroll" popup="true">
+            <action id="CodeScroll.Markdown.ToggleMinimap" class="dev.codescroll.markdown.ToggleRenderedMarkdownMinimapAction"
+                    text="Show Minimap" description="Show the Code Scroll minimap in rendered Markdown previews"/>
+            <action id="CodeScroll.Markdown.SyncSource" class="dev.codescroll.markdown.ToggleMarkdownSyncSourceAction"
+                    text="Sync Source Editor" description="Scroll the Markdown source when you scroll with the preview's minimap"/>
+            <action id="CodeScroll.Markdown.LockWidth" class="dev.codescroll.markdown.ToggleMinimapWidthLockAction"
+                    text="Lock Width" description="Stop minimaps from being resized by dragging"/>
+            <separator/>
+            <action id="CodeScroll.Markdown.Settings" class="dev.codescroll.markdown.OpenCodeScrollSettingsAction"
+                    text="Code Scroll Settings..." description="Open the Code Scroll settings"/>
+            <add-to-group group-id="Markdown.PreviewGroup" anchor="last"/>
+        </group>
+    </actions>
 </idea-plugin>

@@ -13,7 +13,12 @@ repositories {
 
 dependencies {
     compileOnly(project(":frontend"))
-    intellijPlatform { bundledPlugin("org.intellij.plugins.markdown") }
+    // Each module declares the platform itself: resolving the root project's platform from here breaks IDE sync.
+    intellijPlatform {
+        val localPath = providers.gradleProperty("localIdePath").orNull
+        if (localPath != null) local(localPath) else intellijIdea(providers.gradleProperty("platformVersion").get())
+        bundledPlugin("org.intellij.plugins.markdown")
+    }
 }
 
 // The IntelliJ Platform Gradle Plugin picks the JVM target the platform requires (Java 25 for 2026.2).

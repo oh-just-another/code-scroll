@@ -1,12 +1,30 @@
 <idea-plugin>
-    <id>dev.codescroll</id>
+    <id>com.rustamgarifulin.codescroll</id>
     <name>Code Scroll</name>
-    <vendor>Rustam Garifulin</vendor>
+    <vendor url="https://ohjustanother.site" email="rustam@n69.in">Oh, just another!</vendor>
     <description><![CDATA[
-        Interactive, syntax-colored code minimap with bounded software rendering,
-        viewport dragging, code preview, declaration markers and large-file sampling.
-        Supports main, diff, preview and console editors.
+        <p>Oh, just another code minimap: the whole file in your theme's colors next to the code, with errors, changes and
+        bookmarks marked on it. Drag the frame to scroll, or rest the pointer on the map to see the code under it.</p>
+
+        <p>The map marks what you would otherwise go looking for:</p>
+        <ul>
+          <li>errors and warnings, VCS changes, bookmarks and breakpoints;</li>
+          <li>every occurrence of the selected text and the current search results;</li>
+          <li>TODO, FIXME, <code>region</code> and <code>MARK</code> comments and class names, as labels you can read.</li>
+        </ul>
+
+        <p>Rendered Markdown previews get a map of their own, and scrolling with it moves the source too. Colors come from
+        your color scheme, so light and dark themes each keep theirs, and you can set your own in
+        <b>Settings | Editor | Color Scheme | Code Scroll</b>. Everything else is in <b>Settings | Editor | Code Scroll</b>.</p>
+
+        <p>Code Scroll is free and open source under the MIT license. It collects no data and never goes online.</p>
+
+        <p>Made by <a href="https://ohjustanother.site">Oh, just another!</a>, a team of one. Bug reports go straight to the
+        entire staff.</p>
     ]]></description>
+    <change-notes><![CDATA[
+        <p>First public release.</p>
+    ]]></change-notes>
     <content>
         <module name="code-scroll.frontend" loading="required"/>
         <!-- Loaded only where the bundled Markdown plugin is present and enabled. -->

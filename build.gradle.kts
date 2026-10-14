@@ -6,8 +6,8 @@ plugins {
     id("org.jetbrains.kotlin.jvm") version "2.3.0" apply false
 }
 
-group = "dev.codescroll"
-version = "0.1.0"
+group = "com.rustamgarifulin.codescroll"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
@@ -20,7 +20,7 @@ dependencies {
     intellijPlatform {
         val localPath = providers.gradleProperty("localIdePath").orNull
         if (localPath != null) local(localPath)
-        else intellijIdea(providers.gradleProperty("platformVersion").getOrElse("2026.2.3"))
+        else intellijIdea(providers.gradleProperty("platformVersion").get())
         pluginVerifier()
     }
 }

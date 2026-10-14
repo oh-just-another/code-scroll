@@ -1,141 +1,140 @@
 # Code Scroll
 
-MIT-licensed code minimap for IntelliJ-based IDEs. Runtime dependencies are
-limited to the host JetBrains Platform (Swing, and the platform's own Kotlin
-standard library — none is bundled). No image libraries,
-network clients, bytecode agents or third-party runtime JARs are bundled.
+Code Scroll adds a minimap to the editors of JetBrains IDEs. It shows the whole file in syntax colors next to the
+code, marks errors, changes and bookmarks on it, and lets you scroll by dragging the frame that shows where you are.
+It works in IntelliJ IDEA, WebStorm, Rider, Android Studio and other IDEs from version 2026.2.
 
-## Features
+## Installation
 
-- Syntax-colored software raster from the editor's own incremental highlighter,
-  with bounded dimensions and large-file sampling, rendered at the screen's
-  device scale (sharp on HiDPI). CLEAN draws solid strokes with a light row
-  between lines; ACCURATE shapes each character by the ink in its upper and
-  lower half (measured once from the platform's monospaced font), so capitals,
-  ascenders and descenders are visible.
-- Fit, Fill and proportional modes; draggable viewport, mouse-wheel scrolling,
-  Shift-click selection and optional caret preservation.
-- Click on mouse DOWN, UP or NONE (drag only); optional column-precise clicks.
-- Hover preview in a read-only editor with the theme's real syntax colors;
-  configurable delay and optional mouse-wheel scrolling inside the preview.
-- Separate overlays for diagnostics, VCS ranges, bookmarks and search/usage
-  results, each switchable, with optional full-line diagnostics and markup.
-- Comment-marker words, a restricted custom marker regex, declarations with
-  name and annotation filters, and Markdown headings (Markdown files only).
-- Rendered Markdown preview minimap (optional module, loaded with the bundled
-  Markdown plugin).
-- Left/right alignment, drag resizing, separate widths for main, diff, preview,
-  console and untyped editors, automatic narrow-editor width and width lock.
-- Show-on-hover mode, a quick-hide button and "Hide in This Editor".
-- Overlay colors (viewport, border, caret line, selection, marker and
-  declaration labels) follow the editor color scheme by default; each can be
-  overridden with a color picker. Adjustable text intensity softens the map
-  against the editor background.
-- Proportional mode by default (3 px per line): the viewport frame is the
-  editor's visible area at map scale, clamped to the document, and travels from
-  the top of the map to its bottom with the scroll while the map scrolls under
-  it. The raster covers up to 4096 device rows and the next window is rendered
-  before the shown part reaches its edge, so scrolling just moves the image;
-  a render in flight is never cancelled by further scrolling.
-  Fit squeezes the whole file into the panel; Fill also stretches short files.
-- The frame is a translucent fill without a border by default; it brightens
-  while hovered and dragged.
-- Independent switches per editor kind, empty maps for console/untyped editors
-  or outside line limits, extension exclusions and a View-menu toggle.
-- Frontend-only modular packaging, with a split-mode development sandbox.
-- Cancellable background reads, debounced rendering, event-driven repaints and
-  disposable editor listeners; dynamic install/unload without restart.
+Until the plugin is on JetBrains Marketplace, build it (see [Building](#building)) and open **Settings | Plugins**,
+click the gear icon, choose **Install Plugin from Disk** and pick `build/distributions/code-scroll-<version>.zip`.
 
-Settings: **Settings | Editor | Code Scroll**. Use **View | Enable/Disable Code
-Scroll Minimap**, Find Action ("Toggle Code Scroll Minimap"), or the minimap
-context menu. No default shortcut is assigned.
+## Using the Minimap
 
-## Build And Test
+Drag the frame to scroll the editor. When you press anywhere else on the map, the frame jumps there and keeps following
+the mouse while you hold the button. Hold **Shift** while clicking to extend the selection to that line, and use the
+mouse wheel over the map to scroll as in the editor.
 
-The plugin is written in Kotlin (2.3 compiler, 2.2 language/API level). Use
-JDK 25: 2026.2 IDEs run on JBR 25, and the IntelliJ Platform Gradle Plugin sets
-the matching JVM target. Gradle is supplied by the wrapper. Add
-`-PlocalIdePath=<IDE>/Contents` to build against an installed IDE instead of
-downloading the SDK.
+Rest the pointer on the map to see the code under it in a popup. To change the map's width, drag its inner edge.
+
+Right-click the map for the options you change most often: fit the whole file, show errors and warnings, keep the
+caret in place, hide the map in this editor or in all editors. The **View** menu has three switches: **Toggle Code
+Scroll Minimap** for all editors, **Code Scroll in This Editor** for the current one, and **Toggle Code Scroll
+Diagnostics** for error and warning marks. None of them has a default shortcut, so assign one in **Settings | Keymap**
+if you use them often.
+
+In Markdown files the map labels headings, and the rendered preview gets its own map. Scrolling with that map also
+scrolls the source, unless you turn it off. The preview's context menu has a **Code Scroll** submenu for its map.
+
+## Settings
+
+All settings are in **Settings | Editor | Code Scroll**. Every option has a short explanation under it, and the
+settings search finds them by name.
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Appearance** | | |
+| Enable minimap | on | Shows the minimap in editors. |
+| Align left | off | Puts the map on the left side of the editor instead of the right. |
+| Fit to editor height | off | Squeezes the whole file into the map's height. When off, each line keeps a fixed height and the map scrolls with the editor. |
+| Fill editor height | off | With Fit, stretches a short file to the full height. |
+| Syntax colors | on | Draws the code in the colors of the editor's color scheme. When off, the map is one color. |
+| Dim comments | off | Draws comments fainter, so the code stands out. |
+| Render style | `CLEAN` | `CLEAN` draws each word as a solid stroke. `ACCURATE` shapes letters, so capitals and descenders are visible. |
+| Text intensity | 70 % | How strongly the text stands out from the background, from 20 to 100 %. |
+| Pixels per line | 3 | Height of one line on the map when Fit is off, from 1 to 8. |
+| Hide editor scrollbar | off | Hides the editor's own scrollbar while the map is shown. |
+| **Width** | | |
+| Automatic width | on | Narrows the map in narrow and split editors. |
+| Lock width | off | Stops the map from being resized by dragging. |
+| Main editors | 110 px | Map width in file editors, from 40 to 300 px. |
+| Diff editors | 60 px | Map width in diff and merge views. |
+| Preview editors | 70 px | Map width in preview editors. |
+| Consoles | 60 px | Map width in console output. |
+| Untyped editors | 60 px | Map width in editors without a file type. |
+| Rendered Markdown | 96 px | Map width in the rendered Markdown preview. You can also drag the map's left edge. |
+| **Colors** | | |
+| Viewport | scheme | Fill of the frame that shows the visible part of the file. |
+| Viewport opacity | 38 | Transparency of the frame fill, from 0 to 255. The frame gets brighter while you hover or drag it. |
+| Viewport border | scheme | Color of the frame's border. |
+| Border opacity | 110 | Transparency of the border, from 0 to 255. |
+| Border width | 0 px | Thickness of the border. At 0 the frame has no border. |
+| Caret line | scheme | Line that marks the caret. |
+| Selection | scheme | Band that marks selected lines. |
+| Marker labels | scheme | Color of TODO, region and other marker labels. |
+| Declaration labels | scheme | Color of class and method labels. |
+| **Navigation and Preview** | | |
+| Click timing | `DOWN` | `DOWN` moves the frame when you press, `UP` when you release, `NONE` only lets you drag the frame. |
+| Click by mouse position | off | Puts the caret at the clicked column, not only on the clicked line. |
+| Scroll only | off | Scrolls the editor without moving the caret or the selection. |
+| Show hover preview | on | Shows the code under the pointer in a popup. |
+| Line numbers in preview | on | Shows line numbers in the popup. |
+| Scroll preview with mouse wheel | off | While the popup is open, the wheel scrolls the popup instead of the editor. |
+| Hover delay | 250 ms | How long the pointer rests before the popup appears, from 0 to 2000 ms. |
+| Show only on hover | off | Keeps the map collapsed to a narrow strip until you point at it. |
+| Show quick hide button | on | Adds a × button that hides the map in the current editor. |
+| Rendered Markdown minimap | on | Adds a map to the rendered Markdown preview. |
+| Sync source with Markdown minimap | on | Scrolls the Markdown source when you scroll with the preview's map. |
+| **Editors** | | |
+| Main editors | on | Shows the map in file editors. |
+| Diff editors | on | Shows the map in diff and merge views. |
+| Preview editors | on | Shows the map in preview editors. |
+| Consoles | off | Shows the map in console output. |
+| Keep console minimap empty | on | In consoles, draws only the frame, without text. |
+| Untyped editors | off | Shows the map in editors without a file type. |
+| Keep untyped minimap empty | on | In untyped editors, draws only the frame, without text. |
+| Minimum lines | 0 | Hides the map in files shorter than this. At 0 there is no limit. |
+| Maximum lines | 1,000,000 | Hides the map in files longer than this. |
+| Keep an empty minimap outside the line limits | off | Instead of hiding the map, shows an empty one you can still drag. |
+| Excluded extensions | `ipynb` | File extensions without a map, separated by commas. |
+| Update delay | 120 ms | How long the map waits after you type before redrawing, from 50 to 2000 ms. |
+| **Markers and Highlights** | | |
+| Errors and warnings | on | Marks problems on the outer edge of the map. The two options below choose which ones. |
+| Errors | on | Shows error marks. |
+| Warnings | on | Shows warnings and other inspection results. |
+| Full-line diagnostics | off | Draws error and warning marks across the whole width of the map. |
+| VCS changes | on | Marks added, changed and deleted lines on the edge next to the code. |
+| Bookmarks | on | Marks bookmarked lines. |
+| Breakpoints | on | Marks lines with breakpoints on the edge next to the code. |
+| Occurrences of the selection | on | Highlights every place in the file where the selected text appears. |
+| Search results and usages | on | Highlights find results and highlighted usages. |
+| Full-line other markup | off | Draws the remaining editor highlights across the whole width of the map. |
+| Comment markers | on | Labels comments that contain a marker word or match the marker regex. |
+| Marker words | `TODO,FIXME,MARK,region` | Words that turn a comment into a label. A word in capitals matches only in capitals. `region` and `MARK` count only at the start of a comment. |
+| Marker regex | empty | Your own pattern for marker comments, up to 256 characters, without groups or alternation. |
+| Declarations | on | Labels classes and types, and the methods chosen by the two filters below. |
+| Method names | empty | Methods to label, separated by commas or new lines. `*` matches any text, `?` one character. When empty, no methods are labeled. |
+| Method annotations | empty | Label only methods with these annotations. When empty, the annotation doesn't matter. |
+| Label font size | 10 | Size of marker and declaration labels, from 6 to 36. |
+
+### Colors in Light and Dark Themes
+
+A color marked "scheme" in the table comes from the editor's color scheme, so it changes when you switch between a
+light and a dark theme. You can give each scheme its own minimap colors in **Settings | Editor | Color Scheme | Code
+Scroll**. If you tick **Custom** next to a color in the Code Scroll settings, that color is used in every scheme.
+
+## Known Limits
+
+- The map shows document lines, so folded code and soft-wrapped lines take as much room as unfolded ones.
+- Class and method labels come from the text of the file, not from the language's code model, so an unusual layout
+  can hide a label or add a wrong one.
+- Labels are looked for only in the first megabyte of a file, and lines are drawn up to 512 characters.
+- When another plugin already occupies the side of the editor where the map goes, Code Scroll leaves that editor
+  alone.
+- The map in the rendered Markdown preview uses an API that JetBrains marks as experimental, so a future IDE version
+  may change it.
+
+## Building
+
+You need JDK 25. Build the plugin with:
 
 ```sh
-./gradlew :frontend:test buildPlugin verifyPluginStructure verifyPlugin
+./gradlew buildPlugin
 ```
 
-Install `build/distributions/code-scroll-0.1.0.zip` through **Plugins | Install
-Plugin from Disk**. Sandbox development: `./gradlew runIde`; add
-`-PlocalIdePath=<IDE>/Contents` to run an installed IDE (for example WebStorm)
-and `-PopenPath=<dir>` to open a project in it.
+The zip appears in `build/distributions/`. To build against an IDE you already have instead of downloading one, add
+`-PlocalIdePath=<path to the IDE>/Contents`. To try the plugin in a separate copy of the IDE, run `./gradlew runIde`.
 
-See [TESTING.md](TESTING.md) for verification results, EAP commands, generated
-regression fixtures and manual acceptance scenarios.
+## License
 
-## Compatibility And Current Limits
-
-The declared baseline is IntelliJ Platform **2026.2 / build 262** (also the base
-of the current Android Studio), without a hard upper build ceiling. Future IDE
-releases require separate verification. The plugin builds against IDEA 2026.2.3.
-See TESTING.md for the IDEs verified so far; the only reported item is one
-experimental Markdown preview API used by the optional Markdown module. A real
-Gateway session is still pending.
-
-- The map uses logical document lines rather than visual wrap/fold rows.
-- Declaration detection uses conservative text heuristics, not language-specific PSI.
-- Labels are scanned in the first 1 MiB. Syntax colors come from the editor's
-  highlighter for the sampled lines only, capped at 200,000 tokens per frame.
-- Compressed maps sample up to three document lines per pixel row. Long lines are
-  clipped horizontally at 512 characters. The maximum raster is 600 x 4096 device
-  pixels (about 9.4 MiB); a typical 110 px map on a 2x screen uses about 3.6 MiB.
-- Labels are cached per document version; scrolling does not rescan the text.
-- Rows shared by several lines, or partly covered by a line, are antialiased by
-  coverage (up to 8 lines sampled per row), so thin and fractional lines fade
-  smoothly instead of flickering.
-- Label overlaps are resolved in document coordinates, so labels do not blink
-  or vanish at the panel edges while scrolling.
-- `region`, `endregion` and `MARK` only count at the start of a comment; marker
-  words written in capitals are case-sensitive. `#` starts a comment only in
-  languages that use it (not in C-family, JavaScript/TypeScript or CSS files,
-  except `#region`/`#endregion`/`#pragma` directives). HTML/XML `<!-- -->`
-  comments carry markers too; labels drop trailing `*/` and `-->`.
-- Errors and warnings can be hidden separately (settings, minimap context menu
-  and View | Toggle Code Scroll Diagnostics). Methods are not labelled unless
-  the "Method names" filter selects them; classes and types always are.
-- The frame height is measured in logical lines, so folded imports, inlays and
-  soft wraps keep it aligned with the code on screen.
-- Editors in modal dialogs (settings previews) get no minimap, except diffs.
-- The hover preview is the platform's editor-fragment view: real colors,
-  folding and line numbers (line numbers can be turned off).
-- A press outside the frame centers the frame under the pointer and keeps
-  dragging it while the button is held.
-- Long files keep a coarse whole-document raster under the precise window, so
-  fast drags never show a blank map while the window catches up.
-- Settings are indexed for the IDE's settings search.
-- Every occurrence of the selected text is highlighted on the map (up to 2,000
-  lines; selections of 2–200 characters on one line).
-- Breakpoints are marked on the editor-facing edge; comments can be dimmed so
-  the code structure stands out.
-- View | Code Scroll in This Editor shows or hides the map in one editor, even
-  when minimaps are off globally or for that editor kind.
-- Code Scroll: Dump Diagnostics (Find Action) logs what the map sees in an
-  editor, which helps with Remote Development (JetBrains Client).
-- Navigating with the rendered Markdown map also scrolls the source editor
-  (can be turned off).
-- Overlay categories are inferred from public highlighter properties (attribute
-  keys, thin stripes, gutter renderers), not backend daemon classes, so an
-  unusual third-party highlighter can land in the wrong category.
-- The hover preview is plain text for documents above 2 MiB.
-- The rendered Markdown map relies on an experimental Markdown preview API.
-- Side attachment requires an unoccupied BorderLayout side slot.
-  Unsupported or occupied layouts are left unchanged.
-- Frontend-only remote packaging exists, but real Gateway behavior needs testing.
-
-## Dependencies And License
-
-Project code is under [MIT](LICENSE); the license is included in the main plugin
-JAR. Build tooling uses Gradle and the official IntelliJ Platform Gradle Plugin.
-Tests use JUnit Jupiter; the baseline IDE test bootstrap also requires JUnit 4.
-The rendered Markdown script has Node.js tests (`./gradlew :markdown:testJavaScript`).
-Build/test dependencies are not bundled in the plugin ZIP.
-
-The generated Gradle wrapper remains Apache-2.0 build tooling. JetBrains IDEs
-and SDK libraries retain their own licenses and are not distributed with the plugin.
+Code Scroll is released under the [MIT License](LICENSE).

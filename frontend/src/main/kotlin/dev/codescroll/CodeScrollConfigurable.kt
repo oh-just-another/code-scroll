@@ -88,12 +88,13 @@ class CodeScrollConfigurable : BoundSearchableConfigurable("Code Scroll", "dev.c
                 number(w::previewWidth, "Preview editors (px):", 40..300, "Width in preview editors.")
                 number(w::consoleWidth, "Consoles (px):", 40..300, "Width in console output.")
                 number(w::untypedWidth, "Untyped editors (px):", 40..300, "Width in editors without a file type.")
+                number(w::markdownMapWidth, "Rendered Markdown (px):", 40..300, "Width of the minimap in the rendered Markdown preview.")
             }
             group("Colors") {
-            row {
-                comment("By default every color follows the editor color scheme; each scheme can set its own values in " +
-                    "Settings | Editor | Color Scheme | Code Scroll. \"Custom\" below overrides all schemes.")
-            }
+                row {
+                    comment("By default every color follows the editor color scheme; each scheme can set its own values in " +
+                        "Settings | Editor | Color Scheme | Code Scroll. \"Custom\" below overrides all schemes.")
+                }
                 color(w::viewportColor, "Viewport:", { it.key(CodeScrollColors.VIEWPORT) },
                     "Fill of the visible-area frame. Follows the scheme's selection background unless Custom.")
                 number(w::viewportOpacity, "Viewport opacity:", 0..255, "Alpha of the frame fill; it brightens while hovered and dragged.")

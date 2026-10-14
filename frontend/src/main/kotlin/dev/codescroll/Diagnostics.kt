@@ -3,6 +3,8 @@ package dev.codescroll
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.ex.EditorEx
@@ -13,7 +15,7 @@ import com.intellij.openapi.editor.markup.MarkupModel
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.Messages
-import com.intellij.util.PlatformUtils
+import com.intellij.openapi.util.Computable
 
 /**
  * Reports what the minimap can see in an editor: the IDE mode, the highlighter and how many of its tokens get a
@@ -31,11 +33,17 @@ object Diagnostics {
     val automatic: Boolean
         get() = System.getProperty("codescroll.diagnostics") == "true" || System.getenv("CODESCROLL_DIAGNOSTICS") == "true"
 
-    fun report(editor: Editor): String = buildString {
+    // Gutter icon tooltips may be built from PSI, which needs a read action.
+    fun report(editor: Editor): String =
+        ApplicationManager.getApplication().runReadAction(Computable { buildReport(editor) })
+
+    private fun buildReport(editor: Editor): String = buildString {
         val document = editor.document
         val file = FileDocumentManager.getInstance().getFile(document)
         appendLine("Code Scroll diagnostics")
-        appendLine("platform prefix: ${PlatformUtils.getPlatformPrefix()}, JetBrains Client: ${PlatformUtils.isJetBrainsClient()}")
+        // The product code tells a JetBrains Client (Remote Development frontend) from a regular IDE.
+        val app = ApplicationInfo.getInstance()
+        appendLine("product: ${app.fullApplicationName}, build ${app.build.asString()}")
         appendLine("editor: ${editor.javaClass.name}, kind: ${editor.editorKind}, file: ${file?.name} (${file?.fileType?.name})")
         appendLine("document: ${document.lineCount} lines, ${document.textLength} chars")
         val highlighter = (editor as? EditorEx)?.highlighter

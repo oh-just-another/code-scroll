@@ -46,6 +46,8 @@ class CodeScrollSettings : PersistentStateComponent<CodeScrollSettings.State> {
         var previewWidth: Int = 70,
         var consoleWidth: Int = 60,
         var untypedWidth: Int = 60,
+        /** Width of the minimap in the rendered Markdown preview, in CSS pixels. */
+        var markdownMapWidth: Int = 96,
         // Empty colors follow the editor color scheme; RRGGBB values are custom picker choices.
         var viewportColor: String = "",
         var viewportBorderColor: String = "",
@@ -137,6 +139,7 @@ class CodeScrollSettings : PersistentStateComponent<CodeScrollSettings.State> {
             previewWidth = previewWidth.coerceIn(40, 300)
             consoleWidth = consoleWidth.coerceIn(40, 300)
             untypedWidth = untypedWidth.coerceIn(40, 300)
+            markdownMapWidth = markdownMapWidth.coerceIn(40, 300)
             hoverDelayMs = hoverDelayMs.coerceIn(0, 2_000)
             viewportOpacity = viewportOpacity.coerceIn(0, 255)
             viewportBorderOpacity = viewportBorderOpacity.coerceIn(0, 255)

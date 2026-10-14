@@ -23,10 +23,12 @@ import com.intellij.openapi.editor.ex.MarkupModelEx
 import com.intellij.openapi.editor.ex.RangeHighlighterEx
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
 import com.intellij.openapi.editor.impl.event.MarkupModelListener
+import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.editor.markup.MarkupModel
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.concurrency.AppExecutorUtil
 import java.awt.Color
@@ -45,6 +47,7 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.awt.image.BufferedImage
+import java.util.WeakHashMap
 import java.util.concurrent.Future
 import javax.swing.JCheckBoxMenuItem
 import javax.swing.JDialog
@@ -106,6 +109,7 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
     private var disposed = false
     private var dragging = false
     private var resizing = false
+    private val gutterIconTexts = WeakHashMap<GutterIconRenderer, String>()
     private var pendingClick = false
     private var mouseInside = false
     private var revealed = false
@@ -627,6 +631,18 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
         return Rectangle(0, top, width, max(1, frameHeight))
     }
 
+    /**
+     * Tooltip and accessible name of a gutter icon, read once per renderer. Code line markers (implementations,
+     * run icons) are skipped: their tooltips are built from PSI, which is slow and needs a read action, and they are
+     * never bookmarks or breakpoints.
+     */
+    private fun gutterIconText(renderer: GutterIconRenderer): String? {
+        if (renderer.javaClass.name.contains("LineMarkerInfo")) return null
+        return gutterIconTexts.getOrPut(renderer) {
+            ApplicationManager.getApplication().runReadAction(Computable { "${renderer.tooltipText} ${renderer.accessibleName}" })
+        }
+    }
+
     private fun paintMarkup(g: Graphics2D, geometry: MapGeometry, model: MarkupModel, accent: Color) {
         val extended = model as? MarkupModelEx ?: return
         val s = settings
@@ -651,7 +667,7 @@ class MinimapPanel(private val editor: Editor) : JPanel(), Disposable {
                     highlighter.lineMarkerRenderer?.javaClass?.name,
                     highlighter.gutterIconRenderer?.javaClass?.name,
                     stripe != null,
-                    highlighter.gutterIconRenderer?.let { "${it.tooltipText} ${it.accessibleName}" },
+                    highlighter.gutterIconRenderer?.let(::gutterIconText),
                 )
                 val background = if (kind == MarkupClassifier.Kind.SEARCH || kind == MarkupClassifier.Kind.OTHER) {
                     highlighter.getTextAttributes(scheme)?.backgroundColor

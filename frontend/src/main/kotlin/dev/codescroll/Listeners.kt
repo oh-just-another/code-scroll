@@ -20,6 +20,6 @@ class CodeScrollStartup : ProjectActivity {
 /** Startup activities do not run for already open projects when the plugin is installed without restart. */
 class CodeScrollPluginListener : DynamicPluginListener {
     override fun pluginLoaded(pluginDescriptor: IdeaPluginDescriptor) {
-        if (pluginDescriptor.pluginId.idString == "dev.codescroll") CodeScrollManager.getInstance().attachExisting()
+        if (pluginDescriptor.pluginId.idString == "com.rustamgarifulin.codescroll") CodeScrollManager.getInstance().attachExisting()
     }
 }
