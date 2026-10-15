@@ -10,6 +10,8 @@
 <p><b>Oh, just another code minimap for JetBrains IDEs.</b></p>
 
 <p>
+  <a href="https://plugins.jetbrains.com/plugin/35118-code-scroll"><img src="https://img.shields.io/jetbrains/plugin/v/35118" alt="Version"></a>
+  <a href="https://plugins.jetbrains.com/plugin/35118-code-scroll"><img src="https://img.shields.io/jetbrains/plugin/d/35118" alt="Downloads"></a>
   <a href="https://github.com/oh-just-another/code-scroll/actions/workflows/verify.yml"><img src="https://github.com/oh-just-another/code-scroll/actions/workflows/verify.yml/badge.svg" alt="Verify Plugin"></a>
   <img src="https://img.shields.io/badge/IntelliJ%20Platform-2026.2%2B-4E8CFF" alt="IntelliJ Platform 2026.2+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111" alt="MIT License"></a>
@@ -35,8 +37,12 @@ It works in IntelliJ IDEA, WebStorm, Rider, Android Studio and other IDEs from v
 
 ## Installation
 
-Until the plugin is on JetBrains Marketplace, build it (see [Building](#building)) and open **Settings | Plugins**,
-click the gear icon, choose **Install Plugin from Disk** and pick `build/distributions/code-scroll-<version>.zip`.
+Open **Settings | Plugins | Marketplace**, search for **Code Scroll** and click **Install**. The plugin is also on
+[JetBrains Marketplace](https://plugins.jetbrains.com/plugin/35118-code-scroll), where **Install to IDE** sends it to
+a running IDE.
+
+To try a build of your own (see [Building](#building)), open **Settings | Plugins**, click the gear icon, choose
+**Install Plugin from Disk** and pick `build/distributions/code-scroll-<version>.zip`.
 
 ## Using the Minimap
 
